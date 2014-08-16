@@ -147,6 +147,7 @@ public:
   virtual void         SetBufferSize(int numBuffers) { m_NumYV12Buffers = numBuffers; }
   virtual unsigned int GetMaxBufferSize() { return NUM_BUFFERS; }
   virtual unsigned int GetOptimalBufferSize();
+  virtual bool         HasFrame();
 
   virtual void RenderUpdate(bool clear, DWORD flags = 0, DWORD alpha = 255);
 

@@ -70,4 +70,7 @@ private:
   unsigned int m_timeCodeTimeout;
   int m_timeCodeStamp[6];
   int m_timeCodePosition;
+
+  bool m_bRenderBypass;
+  bool m_bHasRendered;
 };
