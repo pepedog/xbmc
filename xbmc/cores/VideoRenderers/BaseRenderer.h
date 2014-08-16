@@ -94,6 +94,7 @@ public:
   virtual void         SetBufferSize(int numBuffers) { }
   virtual void         ReleaseBuffer(int idx) { }
   virtual bool         NeedBufferForRef(int idx) { return false; }
+  virtual bool         HasFrame() { return true; }
 
   virtual bool Supports(ERENDERFEATURE feature) { return false; }
 

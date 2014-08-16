@@ -306,6 +306,20 @@ void CRenderer::Render(COverlay* o, float adjust_height)
   o->Render(state);
 }
 
+bool CRenderer::HasOverlay(int idx)
+{
+  bool hasOverlay = false;
+
+  CSingleLock lock(m_section);
+
+  SElementV& list = m_buffers[idx];
+  for(SElementV::iterator it = list.begin(); it != list.end(); ++it)
+  {
+    hasOverlay = true;
+  }
+  return hasOverlay;
+}
+
 COverlay* CRenderer::Convert(CDVDOverlaySSA* o, double pts)
 {
   CRect src, dst;
