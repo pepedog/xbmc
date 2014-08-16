@@ -233,7 +233,7 @@ bool CXBMCRenderManager::Configure(unsigned int width, unsigned int height, unsi
 
   /* make sure any queued frame was fully presented */
   XbmcThreads::EndTime endtime(5000);
-  while(m_presentstep != PRESENT_IDLE)
+  while(m_presentstep != PRESENT_IDLE && m_presentstep != PRESENT_READY)
   {
     if(endtime.IsTimePast())
     {
@@ -791,6 +791,21 @@ void CXBMCRenderManager::Render(bool clear, DWORD flags, DWORD alpha)
     PresentSingle(clear, flags, alpha);
 
   m_overlays.Render(m_presentsource);
+}
+
+bool CXBMCRenderManager::RenderBypass()
+{
+  { CSingleLock lock(m_presentlock);
+
+    if(m_presentstep != PRESENT_IDLE)
+    {
+      if (m_pRenderer->HasFrame() || m_overlays.HasOverlay(m_presentsource))
+        return false;
+      else
+        m_presentstep = PRESENT_IDLE;
+    }
+  }
+  return true;
 }
 
 /* simple present method */
