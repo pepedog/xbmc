@@ -37,6 +37,7 @@ using namespace std;
 
 bool appExit = false;
 bool doubleRate = false;
+bool lowMotion = false;
 
 
 void signal_handler(int signum) {
@@ -692,11 +693,7 @@ class FB : public Stats {
 		virtual bool Ouput(DVDVideoPicture &p) {
 			int ret;
 
-			CDVDVideoCodecIMXBuffer *buf = p.IMXBuffer;
-
-			SAFE_RELEASE(_lastBuffer);
-			_lastBuffer = buf;
-			_lastBuffer->Lock();
+			CDVDVideoCodecIMXVPUBuffer *buf = (CDVDVideoCodecIMXVPUBuffer*)p.IMXBuffer;
 
 			struct ipu_task task;
 			memset(&task, 0, sizeof(task));
@@ -727,10 +724,23 @@ class FB : public Stats {
 
 			// Setup deinterlacing if enabled
 			if ( _enableDeinterlacing ) {
-				task.input.deinterlace.enable = 1;
-				task.input.deinterlace.motion = HIGH_MOTION;
+				VpuFieldType fieldType;
+				bool enableLowMotion = lowMotion && (buf->GetPreviousBuffer() != NULL);
 
-				switch ( buf->GetFieldType() ) {
+				task.input.deinterlace.enable = 1;
+
+				if ( enableLowMotion ) {
+					task.input.paddr_n = (int)buf->pPhysAddr;
+					task.input.paddr = (int)buf->GetPreviousBuffer()->pPhysAddr;
+					task.input.deinterlace.motion = LOW_MOTION;
+					fieldType = buf->GetPreviousBuffer()->GetFieldType();
+				}
+				else {
+					task.input.deinterlace.motion = HIGH_MOTION;
+					fieldType = buf->GetFieldType();
+				}
+
+				switch ( fieldType ) {
 					case VPU_FIELD_TOP:
 					case VPU_FIELD_TB:
 						task.input.deinterlace.field_fmt |= IPU_DEINTERLACE_FIELD_TOP;
@@ -751,11 +761,9 @@ class FB : public Stats {
 			task.output.height = _vScreenInfo.yres;
 			//task.output.format  = v4l2_fourcc('R', 'G', 'B', 'P');
 			task.output.format  = v4l2_fourcc('U', 'Y', 'V', 'Y');
-			//task.output.paddr   = _fScreenInfo.smem_start+_currentPage*_fScreenInfo.line_length*_vScreenInfo.yres;
-			//task.output.paddr   = _fScreenInfo.smem_start;
 			task.output.paddr = _fScreenInfo.smem_start + _currentPage*_fbPageSize;
 
-			// Setup test cropping for testing
+			// Setup cropping for testing
 			/*
 			task.output.crop.pos.x = task.output.width / 4;
 			task.output.crop.pos.y = task.output.height / 4;
@@ -807,6 +815,10 @@ class FB : public Stats {
 
 				Stats::Ouput(p);
 			}
+
+			SAFE_RELEASE(_lastBuffer);
+			_lastBuffer = buf;
+			_lastBuffer->Lock();
 
 			return Stats::Ouput(p);
 		}
@@ -962,6 +974,8 @@ int main (int argc, char *argv[]) {
 			deinterlacedTest = true;
 		else if ( !strcmp(argv[i], "--doublerate") )
 			doubleRate = true;
+		else if ( !strcmp(argv[i], "--low-motion") )
+			lowMotion = true;
 	}
 
 	const char *filename = argv[1];
