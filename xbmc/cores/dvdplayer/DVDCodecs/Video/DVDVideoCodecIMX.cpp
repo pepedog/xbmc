@@ -26,7 +26,6 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <sys/mman.h>
-#include <linux/mxcfb.h>
 #include <linux/ipu.h>
 #include "settings/MediaSettings.h"
 #include "settings/VideoSettings.h"
@@ -896,7 +895,9 @@ int CDVDVideoCodecIMX::Decode(BYTE *pData, int iSize, double dts, double pts)
           lastD = current;
 #endif
 
-          //m_currentBuffer = buffer;
+          m_currentBuffer = buffer;
+          m_currentBuffer->ipu = &m_deinterlacer;
+          /*
           if (m_dropState)
           {
             m_currentBuffer = m_mixer.Process(NULL);
@@ -907,6 +908,7 @@ int CDVDVideoCodecIMX::Decode(BYTE *pData, int iSize, double dts, double pts)
           }
           else
             m_currentBuffer = m_mixer.Process(buffer);
+          */
 
           if (m_currentBuffer)
             retStatus |= VC_PICTURE;
@@ -1124,11 +1126,13 @@ void CDVDVideoCodecIMX::SetDropState(bool bDrop)
 /*******************************************/
 #ifdef TRACE_FRAMES
 CDVDVideoCodecIMXBuffer::CDVDVideoCodecIMXBuffer(int idx)
-  : m_idx(idx)
+  : ipu(NULL)
+  , m_idx(idx)
   , m_refs(1)
 #else
 CDVDVideoCodecIMXBuffer::CDVDVideoCodecIMXBuffer()
-  : m_refs(1)
+  : ipu(NULL)
+  , m_refs(1)
 #endif
   , m_pts(DVD_NOPTS_VALUE)
   , m_dts(DVD_NOPTS_VALUE)
@@ -1487,6 +1491,7 @@ bool CDVDVideoCodecIMXIPUBuffer::Allocate(int fd, int width, int height, int nAl
   m_nSize = m_iWidth*m_iHeight*32/8;
 #endif
 
+  m_nSize += FRAME_ALIGN;
   m_pPhyAddr = m_nSize;
 
   pPhysAddr = pVirtAddr = NULL;
@@ -1510,16 +1515,8 @@ bool CDVDVideoCodecIMXIPUBuffer::Allocate(int fd, int width, int height, int nAl
     return false;
   }
 
-  if (nAlign>1)
-  {
-    pPhysAddr = (uint8_t*)Align(m_pPhyAddr, nAlign);
-    pVirtAddr = (uint8_t*)Align(m_pVirtAddr, nAlign);
-  }
-  else
-  {
-    pPhysAddr = (uint8_t*)m_pPhyAddr;
-    pVirtAddr = (uint8_t*)m_pVirtAddr;
-  }
+  pPhysAddr = (uint8_t*)Align(m_pPhyAddr, FRAME_ALIGN);
+  pVirtAddr = (uint8_t*)Align(m_pVirtAddr, FRAME_ALIGN);
 
   return true;
 }
@@ -1561,6 +1558,10 @@ bool CDVDVideoCodecIMXIPUBuffer::Free(int fd)
 
 CDVDVideoCodecIMXIPUBuffers::CDVDVideoCodecIMXIPUBuffers()
   : m_ipuHandle(0)
+  , m_fbHandle(0)
+  , m_fbPages(0)
+  , m_fbCurrentPage(0)
+  , m_fbPhyAddr(0)
   , m_bufferNum(0)
   , m_buffers(NULL)
   , m_currentFieldFmt(0)
@@ -1578,6 +1579,87 @@ bool CDVDVideoCodecIMXIPUBuffers::Init(int width, int height, int numBuffers, in
   {
     CLog::Log(LOGERROR, "IPU Init: invalid number of buffers: %d\n", numBuffers);
     return false;
+  }
+
+  int fb0 = open("/dev/fb0", O_RDWR, 0);
+
+  if (fb0 < 0)
+  {
+    CLog::Log(LOGWARNING, "Failed to open /dev/fb0\n");
+  }
+  else
+  {
+    if (ioctl(fb0, FBIOGET_VSCREENINFO, &m_fbVar) < 0)
+      CLog::Log(LOGWARNING, "Failed to read primary screen resolution\n");
+    else
+    {
+      struct mxcfb_gbl_alpha alpha;
+      struct mxcfb_loc_alpha lalpha;
+
+      alpha.alpha = 255;
+      alpha.enable = 1;
+      ioctl(fb0, MXCFB_SET_GBL_ALPHA, &alpha);
+      lalpha.enable = 1;
+      lalpha.alpha_in_pixel = 1;
+      ioctl(fb0, MXCFB_SET_LOC_ALPHA, &lalpha);
+      close(fb0);
+
+      const char *deviceName = "/dev/fb1";
+      // Open Framebuffer and gets its address
+      m_fbHandle = open(deviceName, O_RDWR | O_NONBLOCK, 0);
+      if (m_fbHandle < 0)
+        CLog::Log(LOGWARNING, "Failed to open framebuffer: %s\n", deviceName);
+      else {
+        m_fbWidth = m_fbVar.xres;
+        m_fbHeight = m_fbVar.yres;
+
+        if (ioctl(m_fbHandle, FBIOGET_VSCREENINFO, &m_fbVar) < 0)
+          CLog::Log(LOGWARNING, "Failed to query variable screen info at %s\n", deviceName);
+        else
+        {
+          // We want two fb pages
+          m_fbPages = 2;
+
+          m_fbVar.xoffset = 0;
+          m_fbVar.yoffset = 0;
+          m_fbVar.bits_per_pixel = 16;
+          m_fbVar.nonstd = _4CC('U', 'Y', 'V', 'Y');
+          m_fbVar.activate = FB_ACTIVATE_NOW;
+          m_fbVar.xres = m_fbWidth;
+          m_fbVar.yres = m_fbHeight;
+          m_fbVar.yres_virtual = m_fbVar.yres * m_fbPages;
+          m_fbVar.xres_virtual = m_fbVar.xres;
+
+          if (ioctl(m_fbHandle, FBIOPUT_VSCREENINFO, &m_fbVar) < 0)
+          {
+            CLog::Log(LOGWARNING, "Failed to setup %s\n", deviceName);
+            close(m_fbHandle);
+            m_fbHandle = 0;
+            m_fbPages = 0;
+          }
+          else
+          {
+            struct fb_fix_screeninfo fb_fix;
+            if (ioctl(m_fbHandle, FBIOGET_FSCREENINFO, &fb_fix) < 0)
+            {
+              CLog::Log(LOGWARNING, "Failed to query fixed screen info at %s\n", deviceName);
+              close(m_fbHandle);
+              m_fbHandle = 0;
+              m_fbPages = 0;
+            }
+            // Final setup
+            else
+            {
+              int fbSize = fb_fix.line_length * m_fbVar.yres_virtual;
+              m_fbPageSize = fbSize / m_fbPages;
+              m_fbPhyAddr = fb_fix.smem_start;
+              m_fbNeedSwap = false;
+              ioctl(m_fbHandle, FBIOBLANK, FB_BLANK_UNBLANK);
+            }
+          }
+        }
+      }
+    }
   }
 
   m_ipuHandle = open("/dev/mxc_ipu", O_RDWR, 0);
@@ -1663,6 +1745,16 @@ bool CDVDVideoCodecIMXIPUBuffers::Close()
     m_ipuHandle = 0;
   }
 
+  if (m_fbHandle)
+  {
+    ioctl(m_fbHandle, FBIOBLANK, 1);
+    close(m_fbHandle);
+    m_fbPages = 0;
+    m_fbCurrentPage = 0;
+    m_fbHandle = 0;
+    m_fbPhyAddr = 0;
+  }
+
   if (m_buffers)
   {
     for (int i=0; i < m_bufferNum; i++)
@@ -1715,6 +1807,155 @@ CDVDVideoCodecIMXIPUBuffers::Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer,
   return target;
 }
 
+bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf)
+{
+  if (!m_fbPhyAddr)
+  {
+    CLog::Log(LOGERROR, "fbout: not initialized\n");
+    return false;
+  }
+
+  if (m_fbNeedSwap)
+    CLog::Log(LOGWARNING, "fbout: same page rendered again\n");
+
+  int ret;
+  struct ipu_task task;
+  memset(&task, 0, sizeof(task));
+
+  task.input.width = buf->iWidth;
+  task.input.height = buf->iHeight;
+  task.input.crop.pos.x = 0;
+  task.input.crop.pos.y = 0;
+  task.input.crop.w = buf->iWidth;
+  task.input.crop.h = buf->iHeight;
+
+  switch (buf->iFormat)
+  {
+  case 0:
+    task.input.format = IPU_PIX_FMT_YUV420P;
+    break;
+  case 1:
+    task.input.format = IPU_PIX_FMT_NV12;
+    break;
+  case 2:
+    task.input.format = IPU_PIX_FMT_RGB565;
+    break;
+  case 3:
+    task.input.format = IPU_PIX_FMT_RGB32;
+    break;
+  default:
+    CLog::Log(LOGERROR, "fbout: unknown input format: %d\n", buf->iFormat);
+    return false;
+  }
+
+  task.input.paddr = (int)buf->pPhysAddr;
+
+  EDEINTERLACEMODE mDeintMode = CMediaSettings::Get().GetCurrentVideoSettings().m_DeinterlaceMode;
+  //EINTERLACEMETHOD mInt       = CMediaSettings::Get().GetCurrentVideoSettings().m_InterlaceMethod;
+
+  //bool deinterlacing = ((mDeintMode == VS_DEINTERLACEMODE_AUTO) && !AutoMode()) ||
+  //                      (mDeintMode == VS_DEINTERLACEMODE_FORCE);
+  // Always one since it is much faster than without fur current buffer
+  // format.
+  bool deinterlacing = true;
+
+  // Setup deinterlacing if enabled
+  if (deinterlacing)
+  {
+    VpuFieldType fieldType;
+
+    task.input.deinterlace.enable = 1;
+    task.input.deinterlace.motion = HIGH_MOTION;
+    fieldType = buf->GetFieldType();
+
+    switch (fieldType)
+    {
+      case VPU_FIELD_TOP:
+      case VPU_FIELD_TB:
+        task.input.deinterlace.field_fmt |= IPU_DEINTERLACE_FIELD_TOP;
+        break;
+      case VPU_FIELD_BOTTOM:
+      case VPU_FIELD_BT:
+        task.input.deinterlace.field_fmt |= IPU_DEINTERLACE_FIELD_BOTTOM;
+        break;
+      default:
+        break;
+    }
+  }
+
+  task.output.width = m_fbWidth;
+  task.output.height = m_fbHeight;
+  task.output.format = _4CC('U', 'Y', 'V', 'Y');
+  task.output.paddr = m_fbPhyAddr + m_fbCurrentPage*m_fbPageSize;
+
+  // Setup viewport cropping
+  task.output.crop.pos.x = 0;
+  task.output.crop.pos.y = 0;
+  task.output.crop.w     = m_fbWidth;
+  task.output.crop.h     = m_fbHeight;
+
+  ret = IPU_CHECK_ERR_INPUT_CROP;
+  while ( ret != IPU_CHECK_OK && ret > IPU_CHECK_ERR_MIN ) {
+    ret = ioctl(m_ipuHandle, IPU_CHECK_TASK, &task);
+    switch (ret)
+    {
+      case IPU_CHECK_OK:
+        break;
+      case IPU_CHECK_ERR_SPLIT_INPUTW_OVER:
+        task.input.crop.w -= 8;
+        break;
+      case IPU_CHECK_ERR_SPLIT_INPUTH_OVER:
+        task.input.crop.h -= 8;
+        break;
+      case IPU_CHECK_ERR_SPLIT_OUTPUTW_OVER:
+        task.output.crop.w -= 8;
+        break;
+      case IPU_CHECK_ERR_SPLIT_OUTPUTH_OVER:
+        task.output.crop.h -= 8;
+        break;
+      default:
+        CLog::Log(LOGWARNING, "fbout: unhandled IPU check error: %d\n", ret);
+        return false;
+    }
+  }
+
+  if ( (ret = ioctl(m_ipuHandle, IPU_QUEUE_TASK, &task)) < 0 )
+  {
+    CLog::Log(LOGERROR, "IPU task failed: %s\n", strerror(errno));
+    return false;
+  }
+
+  m_fbNeedSwap = m_fbPages > 1;
+
+  return true;
+}
+
+bool CDVDVideoCodecIMXIPUBuffers::SwapFB()
+{
+  if (!m_fbHandle) return false;
+  if (m_fbPages < 2) return true;
+
+  int ret;
+  int nextPage = m_fbCurrentPage + 1;
+  if (nextPage >= m_fbPages)
+    nextPage = 0;
+
+  if (nextPage != m_fbCurrentPage)
+  {
+    m_fbVar.activate = FB_ACTIVATE_VBL;
+    m_fbVar.yoffset = m_fbVar.yres*m_fbCurrentPage;
+    if ( (ret = ioctl(m_fbHandle, FBIOPAN_DISPLAY, &m_fbVar)) < 0 )
+      CLog::Log(LOGWARNING, "Panning failed: %s\n", strerror(errno));
+
+    // Wait for sync
+    if (ioctl(m_fbHandle, FBIO_WAITFORVSYNC, 0) < 0)
+      CLog::Log(LOGWARNING, "Vsync failed: %s\n", strerror(errno));
+  }
+
+  m_fbCurrentPage = nextPage;
+  m_fbNeedSwap = false;
+  return true;
+}
 
 CDVDVideoMixerIMX::CDVDVideoMixerIMX(CDVDVideoCodecIMXIPUBuffers *proc)
   : CThread("IMX6 Mixer")
