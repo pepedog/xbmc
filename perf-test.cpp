@@ -10,6 +10,7 @@
 #include <string.h>
 #include <signal.h>
 #include <errno.h>
+#include <math.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/types.h>
@@ -21,6 +22,7 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <EGL/egl.h>
+#include <EGL/eglvivante.h>
 #include <cores/dvdplayer/DVDCodecs/Video/DVDVideoCodecIMX.h>
 #include <cores/dvdplayer/DVDCodecs/DVDCodecs.h>
 #include <cores/dvdplayer/DVDClock.h>
@@ -38,9 +40,11 @@ using namespace std;
 bool appExit = false;
 bool doubleRate = false;
 bool lowMotion = false;
+int  duration = 40;
 
 
 void signal_handler(int signum) {
+	cerr << "Got signal: " << signum << endl;
 	appExit = true;
 }
 
@@ -68,7 +72,7 @@ EGLint const attribute_list[] = {
 		EGL_STENCIL_SIZE,    0,
 		EGL_SAMPLE_BUFFERS,  0,
 		EGL_SAMPLES,         0,
-		EGL_SURFACE_TYPE,    EGL_WINDOW_BIT,
+		EGL_SURFACE_TYPE,    EGL_WINDOW_BIT | EGL_SWAP_BEHAVIOR_PRESERVED_BIT,
 		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
 		EGL_NONE
 };
@@ -144,6 +148,9 @@ int initEGL() {
 	/* create an EGL window surface */
 	surface = eglCreateWindowSurface(display, config, native_window, NULL);
 	CheckError("eglCreateWindowSurface");
+
+	eglSurfaceAttrib(display, surface, EGL_SWAP_BEHAVIOR, EGL_BUFFER_PRESERVED);
+	CheckError("eglSurfaceAttrib");
 
 	/* create an EGL rendering context */
 	context = eglCreateContext(display, config, NULL, ctxattr);
@@ -431,8 +438,10 @@ class OutputBase : private CThread {
 			DVDVideoPicture p;
 
 			while ( m_queue->Pop(p) ) {
-				if ( !Ouput(p) )
+				if ( !Ouput(p) ) {
+					cerr << "Abort output, false returned" << endl;
 					return false;
+				}
 			}
 
 			return true;
@@ -599,6 +608,17 @@ class FB : public Stats {
 		virtual bool Init() {
 			Stats::Init();
 
+			if ( initFB() ) {
+				cerr << "FB init failed" << endl;
+				return false;
+			}
+
+			if ( initEGL() ) {
+				cerr << "EGL init failed" << endl;
+				cleanup();
+				return false;
+			}
+
 			_numPages = 1;
 			const char *fb = getenv("FB_MULTI_BUFFER");
 			if ( fb != NULL ) {
@@ -662,7 +682,8 @@ class FB : public Stats {
 				return false;
 			}
 
-			_fbSize = alignToPageSize(_fScreenInfo.line_length * _vScreenInfo.yres_virtual);
+			_fbSize = _fScreenInfo.line_length * _vScreenInfo.yres_virtual;
+			//_numPages = _vScreenInfo.yres_virtual / _vScreenInfo.yres;
 
 			if ( ioctl(_fd, FBIOBLANK, FB_BLANK_UNBLANK) < 0 ) {
 				cerr << "Unblanking failed" << endl;
@@ -672,34 +693,115 @@ class FB : public Stats {
 
 			_fbPageSize = _fbSize / _numPages;
 
-			cerr << "Render page: " << _numPages << endl;
+			cerr << "Render pages: " << _numPages << endl;
 			cerr << "Visible resolution: " << _vScreenInfo.xres << "x"
 			     << _vScreenInfo.yres
 			     << "@" << _vScreenInfo.bits_per_pixel << endl;
 			cerr << "Virtual resolution: " << _vScreenInfo.xres_virtual << "x"
 			     << _vScreenInfo.yres_virtual
 			     << "@" << _vScreenInfo.bits_per_pixel << endl;
+			cerr << "Page size: " << _fbPageSize << endl;
+			cerr << "Line length: " << _fScreenInfo.line_length << endl;
 
 			_currentPage = 0;
+
+			{
+				struct mxcfb_gbl_alpha alpha;
+				struct mxcfb_loc_alpha lalpha;
+				int fd;
+
+				fd = open("/dev/fb0",O_RDWR);
+				alpha.alpha = 255;
+				alpha.enable = 1;
+				ioctl(fd, MXCFB_SET_GBL_ALPHA, &alpha);
+				lalpha.enable = 1;
+				lalpha.alpha_in_pixel = 1;
+				ioctl(fd, MXCFB_SET_LOC_ALPHA, &lalpha);
+				close(fd);
+			}
+
+			/*
+			{
+				void *vbuf = mmap(0, _fbSize, PROT_READ | PROT_WRITE, MAP_SHARED, _fd, 0);
+				if ( vbuf != NULL ) {
+					memset(vbuf, 0, _fbSize);
+					munmap(vbuf, _fbSize);
+					cerr << "Cleared display buffer" << endl;
+				}
+			}
+			*/
 
 			_enableDeinterlacing = CMediaSettings::Get().GetCurrentVideoSettings().m_DeinterlaceMode == VS_DEINTERLACEMODE_FORCE;
 
 			// Switch deinterlacing always off since it is done in the renderer
 			CMediaSettings::Get().GetCurrentVideoSettings().m_DeinterlaceMode = VS_DEINTERLACEMODE_OFF;
 
+			glViewport(0, 0, screenWidth, screenHeight);
+
+			const char vertex_shader [] =
+			"                                        \
+			   attribute vec4 position;              \
+			   uniform mat4   mvp;                   \
+			                                         \
+			   void main()                           \
+			   {                                     \
+			      gl_Position = mvp * position;      \
+			   }                                     \
+			";
+
+			const char fragment_shader [] =
+			"                                        \
+			   void  main()                          \
+			   {                                     \
+			     gl_FragColor = vec4(0,1,0,0.7);     \
+			   }                                     \
+			";
+
+			GLuint vertexShader = loadShader(vertex_shader, GL_VERTEX_SHADER);
+			GLuint fragmentShader = loadShader(fragment_shader, GL_FRAGMENT_SHADER);
+			GLuint shaderProg = glCreateProgram();
+			glAttachShader(shaderProg, vertexShader);
+			glAttachShader(shaderProg, fragmentShader);
+
+			glLinkProgram(shaderProg);
+			glUseProgram(shaderProg);
+
+			position_loc = glGetAttribLocation(shaderProg, "position");
+			int mvp_loc = glGetUniformLocation(shaderProg, "mvp");
+			GLfloat mvp[] = {
+				2.0/screenWidth,                 0,  0,  0,
+				              0, -2.0/screenHeight,  0,  0,
+				              0,                 0, -1,  0,
+				             -1,                 1,  0,  1
+			};
+
+			glUniformMatrix4fv(mvp_loc, 1, false, mvp);
+
+			glClearColor(0.0,0.0,0.0,0.0);
+			glClear(GL_COLOR_BUFFER_BIT);
+
+			_frameDuration = doubleRate?duration/2:duration;
+
 			return true;
 		}
 
 		virtual bool Ouput(DVDVideoPicture &p) {
+			SetupViewPort(Rect(0, 0, _vScreenInfo.xres, _vScreenInfo.yres));
+
+			//SetupViewPort(Rect(_vScreenInfo.xres/2, _vScreenInfo.yres/2,
+			//                   _vScreenInfo.xres/2, _vScreenInfo.yres/2));
+
 			int ret;
-
 			CDVDVideoCodecIMXVPUBuffer *buf = (CDVDVideoCodecIMXVPUBuffer*)p.IMXBuffer;
-
 			struct ipu_task task;
 			memset(&task, 0, sizeof(task));
 
 			task.input.width = buf->iWidth;
 			task.input.height = buf->iHeight;
+			task.input.crop.pos.x = 0;
+			task.input.crop.pos.y = 0;
+			task.input.crop.w = buf->iWidth;
+			task.input.crop.h = buf->iHeight;
 
 			switch ( buf->iFormat ) {
 				case 0:
@@ -725,11 +827,11 @@ class FB : public Stats {
 			// Setup deinterlacing if enabled
 			if ( _enableDeinterlacing ) {
 				VpuFieldType fieldType;
-				bool enableLowMotion = lowMotion && (buf->GetPreviousBuffer() != NULL);
+				bool hasPreviousBuffer = (buf->GetPreviousBuffer() != NULL);
 
 				task.input.deinterlace.enable = 1;
 
-				if ( enableLowMotion ) {
+				if ( hasPreviousBuffer && lowMotion ) {
 					task.input.paddr_n = (int)buf->pPhysAddr;
 					task.input.paddr = (int)buf->GetPreviousBuffer()->pPhysAddr;
 					task.input.deinterlace.motion = LOW_MOTION;
@@ -760,16 +862,16 @@ class FB : public Stats {
 			task.output.width = _vScreenInfo.xres;
 			task.output.height = _vScreenInfo.yres;
 			//task.output.format  = v4l2_fourcc('R', 'G', 'B', 'P');
-			task.output.format  = v4l2_fourcc('U', 'Y', 'V', 'Y');
+			//task.output.format  = v4l2_fourcc('U', 'Y', 'V', 'Y');
+			task.output.format  = _vScreenInfo.nonstd;
+			//task.output.format  = v4l2_fourcc('B', 'G', 'R', '4');
 			task.output.paddr = _fScreenInfo.smem_start + _currentPage*_fbPageSize;
 
-			// Setup cropping for testing
-			/*
-			task.output.crop.pos.x = task.output.width / 4;
-			task.output.crop.pos.y = task.output.height / 4;
-			task.output.crop.w     = task.output.width / 2;
-			task.output.crop.h     = task.output.height / 2;
-			*/
+			// Setup viewport cropping
+			task.output.crop.pos.x = _viewPort.x;
+			task.output.crop.pos.y = _viewPort.y;
+			task.output.crop.w     = _viewPort.w;
+			task.output.crop.h     = _viewPort.h;
 
 			ret = IPU_CHECK_ERR_INPUT_CROP;
 			while ( ret != IPU_CHECK_OK && ret > IPU_CHECK_ERR_MIN ) {
@@ -791,6 +893,9 @@ class FB : public Stats {
 						break;
 					default:
 						cerr << "Unknown IPU check error: " << ret << endl;
+						cerr << "Viewport: " << _viewPort.x << "/" << _viewPort.y
+						              << " " << _viewPort.w << "x" << _viewPort.h
+						              << endl;
 						Stats::Ouput(p);
 						return false;
 				}
@@ -826,10 +931,25 @@ class FB : public Stats {
 		virtual void Done() {
 			cleanup();
 			SAFE_RELEASE(_lastBuffer);
+			destroyEGL();
 			Stats::Done();
 		}
 
 	private:
+		struct Rect {
+			Rect() : w(0), h(0) {}
+			Rect(int x_, int y_, int w_, int h_)
+			: x(x_), y(y_), w(w_), h(h_) {}
+
+			bool operator==(const Rect &other) const {
+				return x == other.x && y == other.y &&
+				       w == other.w && h == other.h;
+			}
+
+			int x,y;
+			int w,h;
+		};
+
 		bool GetResolution(int number, int &width, int &height) {
 			int fd;
 			struct fb_var_screeninfo fb_var;
@@ -856,21 +976,70 @@ class FB : public Stats {
 			return true;
 		}
 
-		void SwapPages() {
-			int ret;
-			int nextPage = _currentPage + 1;
-			if ( nextPage >= _numPages )
-				nextPage = 0;
+		void SetupViewPort(const Rect &r) {
+			_viewPort = r;
+		}
 
-			if ( nextPage != _currentPage ) {
-				_vScreenInfo.activate = FB_ACTIVATE_VBL;
-				_vScreenInfo.yoffset = _vScreenInfo.yres*_currentPage;
-				if ( (ret = ioctl(_fd, FBIOPAN_DISPLAY, &_vScreenInfo)) < 0 ) {
-					cerr << "Panning failed: " << strerror(ret) << endl;
+		void SwapPages() {
+			static unsigned long long lastSwap = 0;
+
+			//glFinish();
+			eglSwapBuffers(display, surface);
+
+			// Nothing to swap
+			if ( _numPages > 1 ) {
+
+				int ret;
+				int nextPage = _currentPage + 1;
+				if ( nextPage >= _numPages )
+					nextPage = 0;
+
+				if ( nextPage != _currentPage ) {
+					_vScreenInfo.activate = FB_ACTIVATE_VBL;
+					_vScreenInfo.yoffset = _vScreenInfo.yres*_currentPage;
+					if ( (ret = ioctl(_fd, FBIOPAN_DISPLAY, &_vScreenInfo)) < 0 ) {
+						cerr << "Panning failed: " << strerror(ret) << endl;
+					}
 				}
+
+				_currentPage = nextPage;
+
+				unsigned long long now = XbmcThreads::SystemClockMillis();
+				signed long long gap = 0;
+				if ( lastSwap ) {
+					unsigned long long nextSwap = lastSwap + _frameDuration;
+					gap = nextSwap - now;
+					if ( gap > 1 )
+						XbmcThreads::ThreadSleep(gap-2);
+				}
+
+				now = XbmcThreads::SystemClockMillis();
+				lastSwap = now;
+
+				if ( ioctl(_fd, FBIO_WAITFORVSYNC, 0) < 0 )
+					cerr << "Wait for vsync failed" << endl;
 			}
 
-			_currentPage = nextPage;
+			// Little rectangle moving across the screen
+			static int x = 0, y = 0;
+			static int dx = 10, dy = 10;
+
+			glClear(GL_COLOR_BUFFER_BIT);
+
+			GLfloat vertices[] = {
+				 x,      y,
+				 x+100,  y,
+				 x,      y+100,
+				 x+100,  y+100
+			};
+
+			x += dx; if ( x >= _vScreenInfo.xres || x <= 0 ) dx = -dx;
+			y += dy; if ( y >= _vScreenInfo.yres || y <= 0 ) dy = -dy;
+
+			glVertexAttribPointer(position_loc, 2, GL_FLOAT, false, 0, vertices);
+			glEnableVertexAttribArray(position_loc);
+			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
 		}
 
 		void cleanup() {
@@ -900,6 +1069,8 @@ class FB : public Stats {
 		struct fb_var_screeninfo  _vScreenInfo;
 		struct fb_fix_screeninfo  _fScreenInfo;
 		CDVDVideoCodecIMXBuffer  *_lastBuffer;
+		Rect                      _viewPort;
+		int                       _frameDuration;
 };
 
 
@@ -946,6 +1117,13 @@ int main (int argc, char *argv[]) {
 			for ( int v = 0; v < 4; ++v ) {
 				vertices[v*3] *= scale;
 				vertices[v*3+1] *= scale;
+			}
+		}
+		if ( !strcmp(parg, "--dur") ) {
+			duration = atoi(argv[i]);
+			if ( duration <= 0 ) {
+				cerr << "Invalid frame duration: " << duration << endl;
+				return 1;
 			}
 		}
 		if ( !strcmp(parg, "--tscale") ) {
