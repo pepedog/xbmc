@@ -31,6 +31,7 @@
 #include "settings/DisplaySettings.h"
 #include "guilib/DispResource.h"
 #include "threads/SingleLock.h"
+#include "cores/VideoRenderers/RenderManager.h"
 #include "utils/log.h"
 #include "EGLWrapper.h"
 #include "EGLQuirks.h"
@@ -266,7 +267,7 @@ bool CWinSystemEGL::CreateNewWindow(const std::string& name, bool fullScreen, RE
   RESOLUTION_INFO current_resolution;
   current_resolution.iWidth = current_resolution.iHeight = 0;
 
-  m_nWidth        = res.iWidth;    
+  m_nWidth        = res.iWidth;
   m_nHeight       = res.iHeight;
   m_displayWidth  = res.iScreenWidth;
   m_displayHeight = res.iScreenHeight;
@@ -439,6 +440,7 @@ bool CWinSystemEGL::IsExtSupported(const char* extension)
 bool CWinSystemEGL::PresentRenderImpl(const CDirtyRegionList &dirty)
 {
   m_egl->SwapBuffers(m_display, m_surface);
+  g_renderManager.PostSwapBuffers();
   return true;
 }
 
