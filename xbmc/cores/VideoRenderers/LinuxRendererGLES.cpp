@@ -523,6 +523,17 @@ void CLinuxRendererGLES::Flush()
   m_iYV12RenderBuffer = 0;
 }
 
+void CLinuxRendererGLES::PostSwapBuffers()
+{
+  if (m_iLastRenderBuffer>=0)
+  {
+    CDVDVideoCodecIMXBuffer *buffer = m_buffers[m_iLastRenderBuffer].IMXBuffer;
+    if (buffer == NULL || !buffer->IsValid()) return;
+    if (buffer->ipu == NULL) return;
+    buffer->ipu->SwapFB();
+  }
+}
+
 void CLinuxRendererGLES::Update()
 {
   if (!m_bConfigured) return;
@@ -1667,6 +1678,12 @@ void CLinuxRendererGLES::RenderCoreVideoRef(int index, int field)
 void CLinuxRendererGLES::RenderIMXMAPTexture(int index, int field)
 {
 #if defined(HAS_IMXVPU)
+#if 1 // Test mode for fb1 output
+  CDVDVideoCodecIMXBuffer *buffer = m_buffers[index].IMXBuffer;
+  if (buffer == NULL || !buffer->IsValid()) return;
+  if (buffer->ipu == NULL) return;
+  buffer->ipu->BlitFB(buffer);
+#else
 #ifdef DEBUG_VERBOSE
   unsigned int time = XbmcThreads::SystemClockMillis();
 #endif
@@ -1743,6 +1760,7 @@ void CLinuxRendererGLES::RenderIMXMAPTexture(int index, int field)
 
 #ifdef DEBUG_VERBOSE
   CLog::Log(LOGDEBUG, "RenderIMXMAPTexture %d: tm:%d\n", index, XbmcThreads::SystemClockMillis() - time);
+#endif
 #endif
 #endif
 }
@@ -2708,6 +2726,7 @@ void CLinuxRendererGLES::SetTextureFilter(GLenum method)
 void CLinuxRendererGLES::UploadIMXMAPTexture(int index)
 {
 #ifdef HAS_IMXVPU
+#if 0
   YUVBUFFER& buf =  m_buffers[index];
   CDVDVideoCodecIMXBuffer* IMXBuffer = buf.IMXBuffer;
 
@@ -2752,6 +2771,7 @@ void CLinuxRendererGLES::UploadIMXMAPTexture(int index)
 
     glDisable(m_textureTarget);
   }
+#endif
 #endif
 }
 

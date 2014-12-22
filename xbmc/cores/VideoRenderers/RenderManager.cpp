@@ -1133,6 +1133,12 @@ void CXBMCRenderManager::DiscardBuffer()
   m_presentevent.notifyAll();
 }
 
+void CXBMCRenderManager::PostSwapBuffers()
+{
+  if (m_pRenderer)
+    m_pRenderer->PostSwapBuffers();
+}
+
 bool CXBMCRenderManager::GetStats(double &sleeptime, double &pts, int &bufferLevel)
 {
   CSingleLock lock(m_presentlock);
