@@ -21,6 +21,7 @@
 #include <queue>
 #include <vector>
 #include <imx-mm/vpu/vpu_wrapper.h>
+#include <linux/mxcfb.h>
 #include "DVDVideoCodec.h"
 #include "DVDStreamInfo.h"
 #include "threads/CriticalSection.h"
@@ -78,6 +79,7 @@ public:
   VpuMemDesc* phyMem;
 };
 
+class CDVDVideoCodecIMXIPUBuffers;
 
 // Base class of IMXVPU and IMXIPU buffer
 class CDVDVideoCodecIMXBuffer {
@@ -101,12 +103,13 @@ public:
 
   VpuFieldType  GetFieldType() const { return fieldType; }
 
-  uint32_t      iWidth;
-  uint32_t      iHeight;
-  uint8_t      *pPhysAddr;
-  uint8_t      *pVirtAddr;
-  uint8_t       iFormat;
-  VpuFieldType  fieldType;
+  uint32_t                     iWidth;
+  uint32_t                     iHeight;
+  uint8_t                     *pPhysAddr;
+  uint8_t                     *pVirtAddr;
+  uint8_t                      iFormat;
+  VpuFieldType                 fieldType;
+  CDVDVideoCodecIMXIPUBuffers *ipu;
 
 
 protected:
@@ -213,8 +216,20 @@ public:
   CDVDVideoCodecIMXIPUBuffer *
   Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer, bool lowMotion);
 
+  bool BlitFB(CDVDVideoCodecIMXBuffer *buf);
+  bool SwapFB();
+
 private:
   int                          m_ipuHandle;
+  int                          m_fbHandle;
+  int                          m_fbPages;
+  int                          m_fbCurrentPage;
+  int                          m_fbWidth;
+  int                          m_fbHeight;
+  int                          m_fbPageSize;
+  int                          m_fbPhyAddr;
+  struct fb_var_screeninfo     m_fbVar;
+  bool                         m_fbNeedSwap;
   bool                         m_autoMode;
   int                          m_bufferNum;
   CDVDVideoCodecIMXIPUBuffer **m_buffers;
