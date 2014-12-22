@@ -84,7 +84,9 @@ public:
   float GetAspectRatio() const;
 
   virtual bool AddVideoPicture(DVDVideoPicture* picture, int index) { return false; }
-  virtual void Flush() {};
+  virtual void Flush() {}
+
+  virtual void PostSwapBuffers() {}
 
   /**
    * Returns number of references a single buffer can retain when rendering a single frame
@@ -118,7 +120,7 @@ protected:
   virtual void       ReorderDrawPoints();//might be overwritten (by egl e.x.)
   void       saveRotatedCoords();//saves the current state of m_rotatedDestCoords
   void       syncDestRectToRotatedPoints();//sync any changes of m_destRect to m_rotatedDestCoords
-  void       restoreRotatedCoords();//restore the current state of m_rotatedDestCoords from saveRotatedCoords 
+  void       restoreRotatedCoords();//restore the current state of m_rotatedDestCoords from saveRotatedCoords
   void       MarkDirty();
 
   RESOLUTION m_resolution;    // the resolution we're running in
