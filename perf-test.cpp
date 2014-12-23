@@ -10,7 +10,6 @@
 #include <string.h>
 #include <signal.h>
 #include <errno.h>
-#include <math.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/types.h>
@@ -22,7 +21,6 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <EGL/egl.h>
-#include <EGL/eglvivante.h>
 #include <cores/dvdplayer/DVDCodecs/Video/DVDVideoCodecIMX.h>
 #include <cores/dvdplayer/DVDCodecs/DVDCodecs.h>
 #include <cores/dvdplayer/DVDClock.h>
@@ -40,6 +38,7 @@ using namespace std;
 bool appExit = false;
 bool doubleRate = false;
 bool lowMotion = false;
+bool eglVSync = false;
 int  duration = 40;
 
 
@@ -159,6 +158,9 @@ int initEGL() {
 	/* connect the context to the surface */
 	eglMakeCurrent(display, surface, surface, context);
 	CheckError("eglMakeCurrent");
+
+	eglSwapInterval(display, eglVSync?1:0);
+	CheckError("eglSwapInterval");
 
 	return 0;
 }
@@ -606,8 +608,6 @@ class FB : public Stats {
 		FB(Queue *q) : Stats(q), _fd(-1), _ipu(-1), _lastBuffer(NULL) {}
 
 		virtual bool Init() {
-			Stats::Init();
-
 			if ( initFB() ) {
 				cerr << "FB init failed" << endl;
 				return false;
@@ -782,7 +782,7 @@ class FB : public Stats {
 
 			_frameDuration = doubleRate?duration/2:duration;
 
-			return true;
+			return Stats::Init();
 		}
 
 		virtual bool Ouput(DVDVideoPicture &p) {
@@ -980,11 +980,10 @@ class FB : public Stats {
 			_viewPort = r;
 		}
 
-		void SwapPages() {
+		void SwapPages(bool swapGPU = true) {
 			static unsigned long long lastSwap = 0;
 
-			//glFinish();
-			eglSwapBuffers(display, surface);
+			glFinish();
 
 			// Nothing to swap
 			if ( _numPages > 1 ) {
@@ -1003,6 +1002,11 @@ class FB : public Stats {
 				}
 
 				_currentPage = nextPage;
+				if ( ioctl(_fd, FBIO_WAITFORVSYNC, 0) < 0 )
+					cerr << "Wait for vsync failed" << endl;
+
+				if ( swapGPU )
+					eglSwapBuffers(display, surface);
 
 				unsigned long long now = XbmcThreads::SystemClockMillis();
 				signed long long gap = 0;
@@ -1015,10 +1019,11 @@ class FB : public Stats {
 
 				now = XbmcThreads::SystemClockMillis();
 				lastSwap = now;
-
-				if ( ioctl(_fd, FBIO_WAITFORVSYNC, 0) < 0 )
-					cerr << "Wait for vsync failed" << endl;
 			}
+			else if ( swapGPU )
+				eglSwapBuffers(display, surface);
+
+			if ( !swapGPU ) return;
 
 			// Little rectangle moving across the screen
 			static int x = 0, y = 0;
@@ -1039,7 +1044,6 @@ class FB : public Stats {
 			glVertexAttribPointer(position_loc, 2, GL_FLOAT, false, 0, vertices);
 			glEnableVertexAttribArray(position_loc);
 			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
 		}
 
 		void cleanup() {
@@ -1154,6 +1158,8 @@ int main (int argc, char *argv[]) {
 			doubleRate = true;
 		else if ( !strcmp(argv[i], "--low-motion") )
 			lowMotion = true;
+		else if ( !strcmp(argv[i], "--gpu-vsync") )
+			eglVSync = true;
 	}
 
 	const char *filename = argv[1];
