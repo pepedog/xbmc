@@ -1133,6 +1133,12 @@ void CXBMCRenderManager::DiscardBuffer()
   m_presentevent.notifyAll();
 }
 
+void CXBMCRenderManager::PreSwapBuffers()
+{
+  if (m_pRenderer)
+    m_pRenderer->PreSwapBuffers();
+}
+
 void CXBMCRenderManager::PostSwapBuffers()
 {
   if (m_pRenderer)

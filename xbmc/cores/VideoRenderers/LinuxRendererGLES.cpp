@@ -523,7 +523,7 @@ void CLinuxRendererGLES::Flush()
   m_iYV12RenderBuffer = 0;
 }
 
-void CLinuxRendererGLES::PostSwapBuffers()
+void CLinuxRendererGLES::PreSwapBuffers()
 {
   if (m_iLastRenderBuffer>=0)
   {
@@ -532,6 +532,11 @@ void CLinuxRendererGLES::PostSwapBuffers()
     if (buffer->ipu == NULL) return;
     buffer->ipu->SwapFB();
   }
+}
+
+void CLinuxRendererGLES::PostSwapBuffers()
+{
+  //
 }
 
 void CLinuxRendererGLES::Update()
@@ -1682,7 +1687,57 @@ void CLinuxRendererGLES::RenderIMXMAPTexture(int index, int field)
   CDVDVideoCodecIMXBuffer *buffer = m_buffers[index].IMXBuffer;
   if (buffer == NULL || !buffer->IsValid()) return;
   if (buffer->ipu == NULL) return;
-  buffer->ipu->BlitFB(buffer);
+
+  // Get visible area
+  float x0,y0,x1,y1;
+  x0 = m_rotatedDestCoords[0].x; y0 = m_rotatedDestCoords[0].y;
+  x1 = m_rotatedDestCoords[0].x; y1 = m_rotatedDestCoords[0].y;
+  for(int i = 1; i < 4; i++)
+  {
+    x0 = min(x0, m_rotatedDestCoords[i].x);
+    y0 = min(y0, m_rotatedDestCoords[i].y);
+    x1 = max(x1, m_rotatedDestCoords[i].x);
+    y1 = max(y1, m_rotatedDestCoords[i].y);
+  }
+
+  // Try to figure out if player window is fullscreen or not. If not,
+  // cut a hole into the backbuffer
+  if (x0>0||y0>0||x1<g_graphicsContext.GetWidth()||y1<g_graphicsContext.GetHeight())
+  {
+    glDisable(GL_DEPTH_TEST);
+    g_Windowing.EnableGUIShader(SM_DEFAULT);
+
+    GLubyte idx[4] = {0, 1, 3, 2};        //determines order of triangle strip
+    GLfloat ver[4][4];
+
+    GLint posLoc = g_Windowing.GUIShaderGetPos();
+    GLint uniColLoc = g_Windowing.GUIShaderGetUniCol();
+
+    glVertexAttribPointer(posLoc, 4, GL_FLOAT, 0, 0, ver);
+    glUniform4f(uniColLoc, 0.0f, 0.0f, 0.0f, 0.0f);
+
+    glEnableVertexAttribArray(posLoc);
+
+    // Set vertex coordinates
+    for(int i = 0; i < 4; i++)
+    {
+      ver[i][0] = m_rotatedDestCoords[i].x;
+      ver[i][1] = m_rotatedDestCoords[i].y;
+      ver[i][2] = 0.0f;// set z to 0
+      ver[i][3] = 1.0f;
+    }
+
+    glDrawElements(GL_TRIANGLE_STRIP, 4, GL_UNSIGNED_BYTE, idx);
+
+    glDisableVertexAttribArray(posLoc);
+    g_Windowing.DisableGUIShader();
+    VerifyGLState();
+
+    CRectInt crop((int)x0, (int)y0, (int)x1, (int)y1);
+    buffer->ipu->BlitFB(buffer, &crop);
+  }
+  else
+    buffer->ipu->BlitFB(buffer);
 #else
 #ifdef DEBUG_VERBOSE
   unsigned int time = XbmcThreads::SystemClockMillis();

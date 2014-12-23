@@ -86,6 +86,7 @@ public:
   virtual bool AddVideoPicture(DVDVideoPicture* picture, int index) { return false; }
   virtual void Flush() {}
 
+  virtual void PreSwapBuffers() {}
   virtual void PostSwapBuffers() {}
 
   /**

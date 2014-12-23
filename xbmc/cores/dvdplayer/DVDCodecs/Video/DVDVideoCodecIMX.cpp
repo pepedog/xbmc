@@ -1581,6 +1581,7 @@ bool CDVDVideoCodecIMXIPUBuffers::Init(int width, int height, int numBuffers, in
     return false;
   }
 
+#if 1
   int fb0 = open("/dev/fb0", O_RDWR, 0);
 
   if (fb0 < 0)
@@ -1661,6 +1662,7 @@ bool CDVDVideoCodecIMXIPUBuffers::Init(int width, int height, int numBuffers, in
       }
     }
   }
+#endif
 
   m_ipuHandle = open("/dev/mxc_ipu", O_RDWR, 0);
   if (m_ipuHandle<=0)
@@ -1807,7 +1809,8 @@ CDVDVideoCodecIMXIPUBuffers::Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer,
   return target;
 }
 
-bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf)
+bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
+                                         const CRectInt *crop)
 {
   if (!m_fbPhyAddr)
   {
@@ -1853,11 +1856,8 @@ bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf)
   EDEINTERLACEMODE mDeintMode = CMediaSettings::Get().GetCurrentVideoSettings().m_DeinterlaceMode;
   //EINTERLACEMETHOD mInt       = CMediaSettings::Get().GetCurrentVideoSettings().m_InterlaceMethod;
 
-  //bool deinterlacing = ((mDeintMode == VS_DEINTERLACEMODE_AUTO) && !AutoMode()) ||
-  //                      (mDeintMode == VS_DEINTERLACEMODE_FORCE);
-  // Always one since it is much faster than without fur current buffer
-  // format.
-  bool deinterlacing = true;
+  bool deinterlacing = ((mDeintMode == VS_DEINTERLACEMODE_AUTO) && !AutoMode()) ||
+                        (mDeintMode == VS_DEINTERLACEMODE_FORCE);
 
   // Setup deinterlacing if enabled
   if (deinterlacing)
@@ -1889,10 +1889,20 @@ bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf)
   task.output.paddr = m_fbPhyAddr + m_fbCurrentPage*m_fbPageSize;
 
   // Setup viewport cropping
-  task.output.crop.pos.x = 0;
-  task.output.crop.pos.y = 0;
-  task.output.crop.w     = m_fbWidth;
-  task.output.crop.h     = m_fbHeight;
+  if (crop != NULL)
+  {
+    task.output.crop.pos.x = crop->x1;
+    task.output.crop.pos.y = crop->y1;
+    task.output.crop.w = crop->Width();
+    task.output.crop.h = crop->Height();
+  }
+  else
+  {
+    task.output.crop.pos.x = 0;
+    task.output.crop.pos.y = 0;
+    task.output.crop.w     = m_fbWidth;
+    task.output.crop.h     = m_fbHeight;
+  }
 
   ret = IPU_CHECK_ERR_INPUT_CROP;
   while ( ret != IPU_CHECK_OK && ret > IPU_CHECK_ERR_MIN ) {

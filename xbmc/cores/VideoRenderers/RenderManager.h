@@ -191,8 +191,9 @@ public:
   void DiscardBuffer();
 
   /**
-   * Notificatin from WinSystem that buffers have been swapped
+   * Notificatin from WinSystem before and after buffers have been swapped
    */
+  void PreSwapBuffers();
   void PostSwapBuffers();
 
 protected:
