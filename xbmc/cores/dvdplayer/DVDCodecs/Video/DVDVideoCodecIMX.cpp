@@ -1856,7 +1856,7 @@ bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
   EDEINTERLACEMODE mDeintMode = CMediaSettings::Get().GetCurrentVideoSettings().m_DeinterlaceMode;
   //EINTERLACEMETHOD mInt       = CMediaSettings::Get().GetCurrentVideoSettings().m_InterlaceMethod;
 
-  bool deinterlacing = ((mDeintMode == VS_DEINTERLACEMODE_AUTO) && !AutoMode()) ||
+  bool deinterlacing = ((mDeintMode == VS_DEINTERLACEMODE_AUTO) && AutoMode()) ||
                         (mDeintMode == VS_DEINTERLACEMODE_FORCE);
 
   // Setup deinterlacing if enabled
