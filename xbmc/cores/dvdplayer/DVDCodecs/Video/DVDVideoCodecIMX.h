@@ -29,12 +29,15 @@
 #include "threads/Event.h"
 #include "threads/Thread.h"
 #include "utils/BitstreamConverter.h"
+#include "guilib/Geometry.h"
 
 
 // The decoding format of the VPU buffer. Comment this to decode
 // as NV12. The VPU works faster with NV12 in combination with
 // deinterlacing.
-//#define IMX_INPUT_FORMAT_I420
+// Progressive content seems to be handled faster with I420 whereas
+// interlaced content is processed faster with NV12 as output format.
+#define IMX_INPUT_FORMAT_I420
 
 // The deinterlacer output and render format. Only one format must be active
 // at a time
@@ -216,7 +219,7 @@ public:
   CDVDVideoCodecIMXIPUBuffer *
   Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer, bool lowMotion);
 
-  bool BlitFB(CDVDVideoCodecIMXBuffer *buf);
+  bool BlitFB(CDVDVideoCodecIMXBuffer *buf, const CRectInt *crop = NULL);
   bool SwapFB();
 
 private:

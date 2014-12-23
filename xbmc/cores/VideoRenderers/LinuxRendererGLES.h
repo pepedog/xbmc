@@ -142,6 +142,7 @@ public:
   virtual void         UnInit();
   virtual void         Reset(); /* resets renderer after seek for example */
   virtual void         Flush();
+  virtual void         PreSwapBuffers();
   virtual void         PostSwapBuffers();
   virtual void         ReorderDrawPoints();
   virtual void         ReleaseBuffer(int idx);
