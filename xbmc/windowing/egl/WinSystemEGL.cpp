@@ -439,6 +439,7 @@ bool CWinSystemEGL::IsExtSupported(const char* extension)
 
 bool CWinSystemEGL::PresentRenderImpl(const CDirtyRegionList &dirty)
 {
+  g_renderManager.PreSwapBuffers();
   m_egl->SwapBuffers(m_display, m_surface);
   g_renderManager.PostSwapBuffers();
   return true;
