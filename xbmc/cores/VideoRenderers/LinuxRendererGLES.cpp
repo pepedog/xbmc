@@ -525,6 +525,7 @@ void CLinuxRendererGLES::Flush()
 
 void CLinuxRendererGLES::PreSwapBuffers()
 {
+  /*
   if (m_iLastRenderBuffer>=0)
   {
     CDVDVideoCodecIMXBuffer *buffer = m_buffers[m_iLastRenderBuffer].IMXBuffer;
@@ -532,6 +533,7 @@ void CLinuxRendererGLES::PreSwapBuffers()
     if (buffer->ipu == NULL) return;
     buffer->ipu->SwapFB();
   }
+  */
 }
 
 void CLinuxRendererGLES::PostSwapBuffers()
@@ -635,7 +637,12 @@ void CLinuxRendererGLES::FlipPage(int source)
     m_iYV12RenderBuffer = NextYV12Texture();
 
   m_buffers[m_iYV12RenderBuffer].flipindex = ++m_flipindex;
+#ifdef HAS_IMXVPU
 
+  CDVDVideoCodecIMXBuffer *buffer = m_buffers[m_iYV12RenderBuffer].IMXBuffer;
+  if (buffer != NULL && buffer->IsValid() && buffer->ipu != NULL)
+    buffer->ipu->SwapFB();
+#endif
   return;
 }
 
