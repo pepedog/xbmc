@@ -39,6 +39,7 @@ bool appExit = false;
 bool doubleRate = false;
 bool lowMotion = false;
 bool eglVSync = false;
+bool eglTest = false;
 int  duration = 40;
 
 
@@ -904,7 +905,7 @@ class FB : public Stats {
 			if ( (ret = ioctl(_ipu, IPU_QUEUE_TASK, &task)) < 0 )
 				cerr << "IPU task error: " << strerror(ret) << endl;
 
-			SwapPages();
+			SwapPages(eglTest);
 
 			if ( _enableDeinterlacing && doubleRate ) {
 				// Lock buffer since it is release in Stats::Output
@@ -916,7 +917,7 @@ class FB : public Stats {
 				if ( (ret = ioctl(_ipu, IPU_QUEUE_TASK, &task)) < 0 )
 					cerr << "IPU task error: " << strerror(ret) << endl;
 
-				SwapPages();
+				SwapPages(eglTest);
 
 				Stats::Ouput(p);
 			}
@@ -983,9 +984,6 @@ class FB : public Stats {
 		void SwapPages(bool swapGPU = true) {
 			static unsigned long long lastSwap = 0;
 
-			glFinish();
-
-			// Nothing to swap
 			if ( _numPages > 1 ) {
 
 				int ret;
@@ -1096,6 +1094,21 @@ void test(const char *filename) {
 	out.Wait();
 }
 
+
+void help() {
+	cout << "perf-test [filename] [options]" << endl;
+	cout << "  -p, --progressive   Use progressive decoding" << endl;
+	cout << "  -d, --deinterlace   Use decoding + deinterlacing" << endl;
+	cout << "      --vo arg        Set video output: gl, fb or null" << endl;
+	cout << "      --dur arg[=40]  Define frame duration used to sync playback" << endl;
+	cout << "      --doublerate    Implements double rate. Requires -d and --vo fb" << endl;
+	cout << "      --low-motion    Uses low motion deinterlacer" << endl;
+	cout << "      --gpu-vsync     Enabled vsync for eglSwapBuffers, default is false" << endl;
+	cout << "      --gpu-test      Draws a moving quad with OpenGL when video output is set to fb" << endl;
+	cout << "      --vscale arg    Scale OpenGL texture quad" << endl;
+	cout << "      --tscale arg    Scale OpenGL texture coords" << endl;
+}
+
 int main (int argc, char *argv[]) {
 	if ( argc < 2 ) {
 		printf("Need stream dump file\n");
@@ -1112,6 +1125,11 @@ int main (int argc, char *argv[]) {
 
 	CLog::Init("./");
 	CLog::SetLogLevel(LOG_LEVEL_DEBUG);
+
+	if ( argc < 2 ) {
+		help();
+		return 0;
+	}
 
 	for ( int i = 1; i < argc; ++i ) {
 		const char *parg = argv[i-1];
@@ -1150,9 +1168,17 @@ int main (int argc, char *argv[]) {
 				return 1;
 			}
 		}
+		else if ( !strcmp(argv[i], "--help") ) {
+			help();
+			return 0;
+		}
 		else if ( !strcmp(argv[i], "-p") )
 			progressiveTest = true;
+		else if ( !strcmp(argv[i], "--progressive") )
+			progressiveTest = true;
 		else if ( !strcmp(argv[i], "-d") )
+			deinterlacedTest = true;
+		else if ( !strcmp(argv[i], "--deinterlace") )
 			deinterlacedTest = true;
 		else if ( !strcmp(argv[i], "--doublerate") )
 			doubleRate = true;
@@ -1160,6 +1186,8 @@ int main (int argc, char *argv[]) {
 			lowMotion = true;
 		else if ( !strcmp(argv[i], "--gpu-vsync") )
 			eglVSync = true;
+		else if ( !strcmp(argv[i], "--gpu-test") )
+			eglTest = true;
 	}
 
 	const char *filename = argv[1];
