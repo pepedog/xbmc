@@ -73,15 +73,35 @@ void CEGLNativeTypeIMX::Initialize()
   fd = open("/sys/class/graphics/fb0/mode", O_RDWR);
   if (fd >= 0)
   {
-    CLog::Log(LOGNOTICE, "%s - graphics sysfs is writable", __FUNCTION__);
+    CLog::Log(LOGNOTICE, "%s - graphics sysfs is writable\n", __FUNCTION__);
     m_readonly = false;
   }
   else
   {
-    CLog::Log(LOGNOTICE, "%s - graphics sysfs is read-only", __FUNCTION__);
+    CLog::Log(LOGNOTICE, "%s - graphics sysfs is read-only\n", __FUNCTION__);
     m_readonly = true;
   }
   close(fd);
+
+  // Switch to 32bit if not set already
+  std::string bpp;
+  if (get_sysfs_str("/sys/class/graphics/fb0/bits_per_pixel", bpp))
+  {
+    CLog::Log(LOGWARNING, "%s - determining current bits per pixel failed\n", __FUNCTION__);
+  }
+  else
+  {
+    StringUtils::Trim(bpp);
+    if (bpp != "32")
+    {
+      if (set_sysfs_str("/sys/class/graphics/fb0/bits_per_pixel", "32"))
+      {
+        CLog::Log(LOGWARNING, "%s - setting bits per pixel to 32 failed\n", __FUNCTION__);
+      }
+    }
+    else
+      CLog::Log(LOGNOTICE, "%s - BPP = 32: OK\n", __FUNCTION__);
+  }
 
   return;
 }
