@@ -197,6 +197,47 @@ private:
 };
 
 
+class RenderFB1
+{
+public:
+  RenderFB1();
+  ~RenderFB1();
+
+  bool Init();
+  bool Close();
+
+  bool IsValid() const         { return m_fbPages > 0; }
+  int  Width() const           { return m_fbWidth; }
+  int  Height() const          { return m_fbHeight; }
+  bool NeedSwap() const        { return m_fbNeedSwap; }
+  int  GetPagePhysAddr() const { return m_fbPhysAddr + m_fbCurrentPage*m_fbPageSize; }
+
+  // Sets the current viewport target of rendering. If the viewport changes
+  // since the last call the pages are cleared
+  void SetViewport(const CRectInt &r);
+
+  // Finished a page update
+  void Finish()                { m_fbNeedSwap = m_fbPages > 1; }
+  // Swaps the physical pages vsynced
+  bool Swap();
+  // Clears the pages memory with 'black'
+  void Clear();
+
+private:
+  int                          m_fbHandle;
+  int                          m_fbPages;
+  int                          m_fbCurrentPage;
+  int                          m_fbWidth;
+  int                          m_fbHeight;
+  int                          m_fbPageSize;
+  int                          m_fbPhysAddr;
+  char                        *m_fbVirtAddr;
+  struct fb_var_screeninfo     m_fbVar;
+  bool                         m_fbNeedSwap;
+  CRectInt                     m_lastCrop;
+};
+
+
 // Collection class that manages a pool of IPU buffers that are used for
 // deinterlacing. In future they can also serve rotation or color conversion
 // buffers.
@@ -222,21 +263,10 @@ public:
   // Framebuffer interface
   bool BlitFB(CDVDVideoCodecIMXBuffer *buf, const CRectInt *crop = NULL);
   bool SwapFB();
-  void ClearFB();
 
 private:
+  static RenderFB1             m_fb;
   int                          m_ipuHandle;
-  int                          m_fbHandle;
-  int                          m_fbPages;
-  int                          m_fbCurrentPage;
-  int                          m_fbWidth;
-  int                          m_fbHeight;
-  int                          m_fbPageSize;
-  int                          m_fbPhysAddr;
-  char                        *m_fbVirtAddr;
-  struct fb_var_screeninfo     m_fbVar;
-  bool                         m_fbNeedSwap;
-  CRectInt                     m_lastCrop;
   bool                         m_autoMode;
   int                          m_bufferNum;
   CDVDVideoCodecIMXIPUBuffer **m_buffers;
