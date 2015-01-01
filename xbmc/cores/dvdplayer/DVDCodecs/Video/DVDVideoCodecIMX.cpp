@@ -1556,13 +1556,195 @@ bool CDVDVideoCodecIMXIPUBuffer::Free(int fd)
   return ret;
 }
 
+RenderFB1::RenderFB1()
+: m_fbHandle(0)
+, m_fbPages(0)
+, m_fbCurrentPage(0)
+, m_fbPhysAddr(0)
+, m_fbVirtAddr(NULL)
+{
+}
+
+RenderFB1::~RenderFB1()
+{
+  Close();
+}
+
+bool RenderFB1::Init()
+{
+  if (m_fbHandle)
+  {
+    CLog::Log(LOGERROR, "fb already initialized, call Close first\n");
+    return false;
+  }
+
+  m_lastCrop = CRectInt(0,0,0,0);
+
+  int fb0 = open("/dev/fb0", O_RDWR, 0);
+
+  if (fb0 < 0)
+  {
+    CLog::Log(LOGWARNING, "Failed to open /dev/fb0\n");
+    return false;
+  }
+
+  if (ioctl(fb0, FBIOGET_VSCREENINFO, &m_fbVar) < 0)
+  {
+    CLog::Log(LOGWARNING, "Failed to read primary screen resolution\n");
+    return false;
+  }
+
+  struct mxcfb_gbl_alpha alpha;
+  struct mxcfb_loc_alpha lalpha;
+
+  alpha.alpha = 255;
+  alpha.enable = 1;
+  ioctl(fb0, MXCFB_SET_GBL_ALPHA, &alpha);
+  lalpha.enable = 1;
+  lalpha.alpha_in_pixel = 1;
+  ioctl(fb0, MXCFB_SET_LOC_ALPHA, &lalpha);
+  close(fb0);
+
+  const char *deviceName = "/dev/fb1";
+  // Open Framebuffer and gets its address
+  m_fbHandle = open(deviceName, O_RDWR | O_NONBLOCK, 0);
+  if (m_fbHandle < 0)
+  {
+    CLog::Log(LOGWARNING, "Failed to open framebuffer: %s\n", deviceName);
+    return false;
+  }
+
+  m_fbWidth = m_fbVar.xres;
+  m_fbHeight = m_fbVar.yres;
+
+  if (ioctl(m_fbHandle, FBIOGET_VSCREENINFO, &m_fbVar) < 0)
+  {
+    CLog::Log(LOGWARNING, "Failed to query variable screen info at %s\n", deviceName);
+    return false;
+  }
+
+  // We want two fb pages
+  m_fbPages = 2;
+
+  m_fbVar.xoffset = 0;
+  m_fbVar.yoffset = 0;
+  m_fbVar.bits_per_pixel = 16;
+  m_fbVar.nonstd = _4CC('U', 'Y', 'V', 'Y');
+  m_fbVar.activate = FB_ACTIVATE_NOW;
+  m_fbVar.xres = m_fbWidth;
+  m_fbVar.yres = m_fbHeight;
+  m_fbVar.yres_virtual = m_fbVar.yres * m_fbPages;
+  m_fbVar.xres_virtual = m_fbVar.xres;
+
+  if (ioctl(m_fbHandle, FBIOPUT_VSCREENINFO, &m_fbVar) < 0)
+  {
+    CLog::Log(LOGWARNING, "Failed to setup %s\n", deviceName);
+    close(m_fbHandle);
+    m_fbHandle = 0;
+    m_fbPages = 0;
+    return false;
+  }
+
+  struct fb_fix_screeninfo fb_fix;
+  if (ioctl(m_fbHandle, FBIOGET_FSCREENINFO, &fb_fix) < 0)
+  {
+    CLog::Log(LOGWARNING, "Failed to query fixed screen info at %s\n", deviceName);
+    close(m_fbHandle);
+    m_fbHandle = 0;
+    m_fbPages = 0;
+    return false;
+  }
+
+  // Final setup
+  int fbSize = fb_fix.line_length * m_fbVar.yres_virtual;
+  m_fbPageSize = fbSize / m_fbPages;
+  m_fbPhysAddr = fb_fix.smem_start;
+  m_fbVirtAddr = (char*)mmap(0, m_fbPageSize*m_fbPages, PROT_READ | PROT_WRITE, MAP_SHARED, m_fbHandle, 0);
+  m_fbNeedSwap = false;
+  Clear();
+  ioctl(m_fbHandle, FBIOBLANK, FB_BLANK_UNBLANK);
+
+  CLog::Log(LOGNOTICE, "Initialized fb output with %d pages\n", m_fbPages);
+
+  return true;
+}
+
+bool RenderFB1::Close()
+{
+  if (m_fbVirtAddr)
+  {
+    Clear();
+    munmap(m_fbVirtAddr, m_fbPageSize*m_fbPages);
+    m_fbVirtAddr = NULL;
+  }
+
+  if (m_fbHandle)
+  {
+    ioctl(m_fbHandle, FBIOBLANK, 1);
+    close(m_fbHandle);
+    m_fbPages = 0;
+    m_fbCurrentPage = 0;
+    m_fbHandle = 0;
+    m_fbPhysAddr = 0;
+  }
+
+  CLog::Log(LOGNOTICE, "Closed fb output\n", m_fbPages);
+
+  return true;
+}
+
+void RenderFB1::SetViewport(const CRectInt &r)
+{
+  if (m_lastCrop != r)
+    Clear();
+
+  m_lastCrop = r;
+}
+
+bool RenderFB1::Swap()
+{
+  if (!m_fbHandle) return false;
+  if (m_fbPages < 2) return true;
+
+  int ret;
+  int nextPage = m_fbCurrentPage + 1;
+  if (nextPage >= m_fbPages)
+    nextPage = 0;
+
+  if (nextPage != m_fbCurrentPage)
+  {
+    m_fbVar.activate = FB_ACTIVATE_VBL;
+    m_fbVar.yoffset = m_fbVar.yres*m_fbCurrentPage;
+    if ( (ret = ioctl(m_fbHandle, FBIOPAN_DISPLAY, &m_fbVar)) < 0 )
+      CLog::Log(LOGWARNING, "Panning failed: %s\n", strerror(errno));
+
+    // Wait for sync
+    if (ioctl(m_fbHandle, FBIO_WAITFORVSYNC, 0) < 0)
+      CLog::Log(LOGWARNING, "Vsync failed: %s\n", strerror(errno));
+  }
+
+  m_fbCurrentPage = nextPage;
+  m_fbNeedSwap = false;
+  return true;
+}
+
+void RenderFB1::Clear()
+{
+  if (!m_fbVirtAddr) return;
+
+  char *tmp_buf = m_fbVirtAddr;
+  int pixels = m_fbPageSize*m_fbPages/2;
+  for (int i = 0; i < pixels; ++i, tmp_buf += 2)
+  {
+    tmp_buf[0] = 128;
+    tmp_buf[1] = 16;
+  }
+}
+
+RenderFB1 CDVDVideoCodecIMXIPUBuffers::m_fb;
+
 CDVDVideoCodecIMXIPUBuffers::CDVDVideoCodecIMXIPUBuffers()
   : m_ipuHandle(0)
-  , m_fbHandle(0)
-  , m_fbPages(0)
-  , m_fbCurrentPage(0)
-  , m_fbPhysAddr(0)
-  , m_fbVirtAddr(NULL)
   , m_bufferNum(0)
   , m_buffers(NULL)
   , m_currentFieldFmt(0)
@@ -1583,89 +1765,9 @@ bool CDVDVideoCodecIMXIPUBuffers::Init(int width, int height, int numBuffers, in
   }
 
 #if 1
-  m_lastCrop = CRectInt(0,0,0,0);
-  int fb0 = open("/dev/fb0", O_RDWR, 0);
-
-  if (fb0 < 0)
-  {
-    CLog::Log(LOGWARNING, "Failed to open /dev/fb0\n");
-  }
-  else
-  {
-    if (ioctl(fb0, FBIOGET_VSCREENINFO, &m_fbVar) < 0)
-      CLog::Log(LOGWARNING, "Failed to read primary screen resolution\n");
-    else
-    {
-      struct mxcfb_gbl_alpha alpha;
-      struct mxcfb_loc_alpha lalpha;
-
-      alpha.alpha = 255;
-      alpha.enable = 1;
-      ioctl(fb0, MXCFB_SET_GBL_ALPHA, &alpha);
-      lalpha.enable = 1;
-      lalpha.alpha_in_pixel = 1;
-      ioctl(fb0, MXCFB_SET_LOC_ALPHA, &lalpha);
-      close(fb0);
-
-      const char *deviceName = "/dev/fb1";
-      // Open Framebuffer and gets its address
-      m_fbHandle = open(deviceName, O_RDWR | O_NONBLOCK, 0);
-      if (m_fbHandle < 0)
-        CLog::Log(LOGWARNING, "Failed to open framebuffer: %s\n", deviceName);
-      else {
-        m_fbWidth = m_fbVar.xres;
-        m_fbHeight = m_fbVar.yres;
-
-        if (ioctl(m_fbHandle, FBIOGET_VSCREENINFO, &m_fbVar) < 0)
-          CLog::Log(LOGWARNING, "Failed to query variable screen info at %s\n", deviceName);
-        else
-        {
-          // We want two fb pages
-          m_fbPages = 2;
-
-          m_fbVar.xoffset = 0;
-          m_fbVar.yoffset = 0;
-          m_fbVar.bits_per_pixel = 16;
-          m_fbVar.nonstd = _4CC('U', 'Y', 'V', 'Y');
-          m_fbVar.activate = FB_ACTIVATE_NOW;
-          m_fbVar.xres = m_fbWidth;
-          m_fbVar.yres = m_fbHeight;
-          m_fbVar.yres_virtual = m_fbVar.yres * m_fbPages;
-          m_fbVar.xres_virtual = m_fbVar.xres;
-
-          if (ioctl(m_fbHandle, FBIOPUT_VSCREENINFO, &m_fbVar) < 0)
-          {
-            CLog::Log(LOGWARNING, "Failed to setup %s\n", deviceName);
-            close(m_fbHandle);
-            m_fbHandle = 0;
-            m_fbPages = 0;
-          }
-          else
-          {
-            struct fb_fix_screeninfo fb_fix;
-            if (ioctl(m_fbHandle, FBIOGET_FSCREENINFO, &fb_fix) < 0)
-            {
-              CLog::Log(LOGWARNING, "Failed to query fixed screen info at %s\n", deviceName);
-              close(m_fbHandle);
-              m_fbHandle = 0;
-              m_fbPages = 0;
-            }
-            // Final setup
-            else
-            {
-              int fbSize = fb_fix.line_length * m_fbVar.yres_virtual;
-              m_fbPageSize = fbSize / m_fbPages;
-              m_fbPhysAddr = fb_fix.smem_start;
-              m_fbVirtAddr = (char*)mmap(0, m_fbPageSize*m_fbPages, PROT_READ | PROT_WRITE, MAP_SHARED, m_fbHandle, 0);
-              m_fbNeedSwap = false;
-              ClearFB();
-              ioctl(m_fbHandle, FBIOBLANK, FB_BLANK_UNBLANK);
-            }
-          }
-        }
-      }
-    }
-  }
+  if (!m_fb.IsValid())
+    m_fb.Init();
+  m_fb.Clear();
 #endif
 
   m_ipuHandle = open("/dev/mxc_ipu", O_RDWR, 0);
@@ -1751,23 +1853,6 @@ bool CDVDVideoCodecIMXIPUBuffers::Close()
     m_ipuHandle = 0;
   }
 
-  if (m_fbVirtAddr)
-  {
-    ClearFB();
-    munmap(m_fbVirtAddr, m_fbPageSize*m_fbPages);
-    m_fbVirtAddr = NULL;
-  }
-
-  if (m_fbHandle)
-  {
-    ioctl(m_fbHandle, FBIOBLANK, 1);
-    close(m_fbHandle);
-    m_fbPages = 0;
-    m_fbCurrentPage = 0;
-    m_fbHandle = 0;
-    m_fbPhysAddr = 0;
-  }
-
   if (m_buffers)
   {
     for (int i=0; i < m_bufferNum; i++)
@@ -1823,13 +1908,13 @@ CDVDVideoCodecIMXIPUBuffers::Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer,
 bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
                                          const CRectInt *crop)
 {
-  if (!m_fbPhysAddr)
+  if (!m_fb.IsValid())
   {
     CLog::Log(LOGERROR, "fbout: not initialized\n");
     return false;
   }
 
-  if (m_fbNeedSwap)
+  if (m_fb.NeedSwap())
     CLog::Log(LOGWARNING, "fbout: same page rendered again\n");
 
   int ret;
@@ -1894,10 +1979,10 @@ bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
     }
   }
 
-  task.output.width = m_fbWidth;
-  task.output.height = m_fbHeight;
+  task.output.width = m_fb.Width();
+  task.output.height = m_fb.Height();
   task.output.format = _4CC('U', 'Y', 'V', 'Y');
-  task.output.paddr = m_fbPhysAddr + m_fbCurrentPage*m_fbPageSize;
+  task.output.paddr = m_fb.GetPagePhysAddr();
 
   // Setup viewport cropping
   CRectInt cropRect;
@@ -1909,8 +1994,8 @@ bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
   {
     cropRect.x1 = 0;
     cropRect.y1 = 0;
-    cropRect.x2 = m_fbWidth;
-    cropRect.y2 = m_fbHeight;
+    cropRect.x2 = m_fb.Width();
+    cropRect.y2 = m_fb.Height();
   }
 
   task.output.crop.pos.x = cropRect.x1;
@@ -1918,10 +2003,7 @@ bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
   task.output.crop.w = cropRect.Width();
   task.output.crop.h = cropRect.Height();
 
-  if (m_lastCrop != cropRect)
-    ClearFB();
-
-  m_lastCrop = cropRect;
+  m_fb.SetViewport(cropRect);
 
   ret = IPU_CHECK_ERR_INPUT_CROP;
   while ( ret != IPU_CHECK_OK && ret > IPU_CHECK_ERR_MIN ) {
@@ -1954,49 +2036,14 @@ bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
     return false;
   }
 
-  m_fbNeedSwap = m_fbPages > 1;
+  m_fb.Finish();
 
   return true;
 }
 
 bool CDVDVideoCodecIMXIPUBuffers::SwapFB()
 {
-  if (!m_fbHandle) return false;
-  if (m_fbPages < 2) return true;
-
-  int ret;
-  int nextPage = m_fbCurrentPage + 1;
-  if (nextPage >= m_fbPages)
-    nextPage = 0;
-
-  if (nextPage != m_fbCurrentPage)
-  {
-    m_fbVar.activate = FB_ACTIVATE_VBL;
-    m_fbVar.yoffset = m_fbVar.yres*m_fbCurrentPage;
-    if ( (ret = ioctl(m_fbHandle, FBIOPAN_DISPLAY, &m_fbVar)) < 0 )
-      CLog::Log(LOGWARNING, "Panning failed: %s\n", strerror(errno));
-
-    // Wait for sync
-    if (ioctl(m_fbHandle, FBIO_WAITFORVSYNC, 0) < 0)
-      CLog::Log(LOGWARNING, "Vsync failed: %s\n", strerror(errno));
-  }
-
-  m_fbCurrentPage = nextPage;
-  m_fbNeedSwap = false;
-  return true;
-}
-
-void CDVDVideoCodecIMXIPUBuffers::ClearFB()
-{
-  if (!m_fbVirtAddr) return;
-
-  char *tmp_buf = m_fbVirtAddr;
-  int pixels = m_fbPageSize*m_fbPages/2;
-  for (int i = 0; i < pixels; ++i, tmp_buf += 2)
-  {
-    tmp_buf[0] = 128;
-    tmp_buf[1] = 16;
-  }
+  return m_fb.Swap();
 }
 
 CDVDVideoMixerIMX::CDVDVideoMixerIMX(CDVDVideoCodecIMXIPUBuffers *proc)
