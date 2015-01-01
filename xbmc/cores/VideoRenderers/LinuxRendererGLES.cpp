@@ -1691,9 +1691,10 @@ void CLinuxRendererGLES::RenderIMXMAPTexture(int index, int field)
 
   // Try to figure out if player window is fullscreen or not. If not,
   // cut a hole into the backbuffer
-  // TODO: Do that as well if the video is not played fullscreen, e.g. played in
-  //       the background of the main screen.
-  if (x0>0||y0>0||x1<g_graphicsContext.GetWidth()||y1<g_graphicsContext.GetHeight())
+  if (!g_graphicsContext.IsFullScreenVideo()
+   || x0>0 || y0>0
+   || x1<g_graphicsContext.GetWidth()
+   || y1<g_graphicsContext.GetHeight())
   {
     glDisable(GL_DEPTH_TEST);
     g_Windowing.EnableGUIShader(SM_DEFAULT);
