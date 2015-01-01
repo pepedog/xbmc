@@ -523,24 +523,6 @@ void CLinuxRendererGLES::Flush()
   m_iYV12RenderBuffer = 0;
 }
 
-void CLinuxRendererGLES::PreSwapBuffers()
-{
-  /*
-  if (m_iLastRenderBuffer>=0)
-  {
-    CDVDVideoCodecIMXBuffer *buffer = m_buffers[m_iLastRenderBuffer].IMXBuffer;
-    if (buffer == NULL || !buffer->IsValid()) return;
-    if (buffer->ipu == NULL) return;
-    buffer->ipu->SwapFB();
-  }
-  */
-}
-
-void CLinuxRendererGLES::PostSwapBuffers()
-{
-  //
-}
-
 void CLinuxRendererGLES::Update()
 {
   if (!m_bConfigured) return;
@@ -2788,7 +2770,6 @@ void CLinuxRendererGLES::SetTextureFilter(GLenum method)
 void CLinuxRendererGLES::UploadIMXMAPTexture(int index)
 {
 #ifdef HAS_IMXVPU
-#if 0
   YUVBUFFER& buf =  m_buffers[index];
   CDVDVideoCodecIMXBuffer* IMXBuffer = buf.IMXBuffer;
 
@@ -2833,7 +2814,6 @@ void CLinuxRendererGLES::UploadIMXMAPTexture(int index)
 
     glDisable(m_textureTarget);
   }
-#endif
 #endif
 }
 
