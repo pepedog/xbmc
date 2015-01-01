@@ -230,9 +230,11 @@ private:
   int                          m_fbWidth;
   int                          m_fbHeight;
   int                          m_fbPageSize;
-  int                          m_fbPhyAddr;
+  int                          m_fbPhysAddr;
+  char                        *m_fbVirtAddr;
   struct fb_var_screeninfo     m_fbVar;
   bool                         m_fbNeedSwap;
+  CRectInt                     m_lastCrop;
   bool                         m_autoMode;
   int                          m_bufferNum;
   CDVDVideoCodecIMXIPUBuffer **m_buffers;

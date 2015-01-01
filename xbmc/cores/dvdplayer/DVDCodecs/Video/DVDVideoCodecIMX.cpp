@@ -1561,7 +1561,8 @@ CDVDVideoCodecIMXIPUBuffers::CDVDVideoCodecIMXIPUBuffers()
   , m_fbHandle(0)
   , m_fbPages(0)
   , m_fbCurrentPage(0)
-  , m_fbPhyAddr(0)
+  , m_fbPhysAddr(0)
+  , m_fbVirtAddr(NULL)
   , m_bufferNum(0)
   , m_buffers(NULL)
   , m_currentFieldFmt(0)
@@ -1653,7 +1654,8 @@ bool CDVDVideoCodecIMXIPUBuffers::Init(int width, int height, int numBuffers, in
             {
               int fbSize = fb_fix.line_length * m_fbVar.yres_virtual;
               m_fbPageSize = fbSize / m_fbPages;
-              m_fbPhyAddr = fb_fix.smem_start;
+              m_fbPhysAddr = fb_fix.smem_start;
+              m_fbVirtAddr = (char*)mmap(0, m_fbPageSize*m_fbPages, PROT_READ | PROT_WRITE, MAP_SHARED, m_fbHandle, 0);
               m_fbNeedSwap = false;
               ioctl(m_fbHandle, FBIOBLANK, FB_BLANK_UNBLANK);
             }
@@ -1747,6 +1749,21 @@ bool CDVDVideoCodecIMXIPUBuffers::Close()
     m_ipuHandle = 0;
   }
 
+  if (m_fbVirtAddr)
+  {
+    // Clear buffer
+    char *tmp_buf = m_fbVirtAddr;
+    int pixels = m_fbPageSize*m_fbPages/2;
+    for (int i = 0; i < pixels; ++i, tmp_buf += 2)
+    {
+      tmp_buf[0] = 128;
+      tmp_buf[1] = 16;
+    }
+
+    munmap(m_fbVirtAddr, m_fbPageSize*m_fbPages);
+    m_fbVirtAddr = NULL;
+  }
+
   if (m_fbHandle)
   {
     ioctl(m_fbHandle, FBIOBLANK, 1);
@@ -1754,7 +1771,7 @@ bool CDVDVideoCodecIMXIPUBuffers::Close()
     m_fbPages = 0;
     m_fbCurrentPage = 0;
     m_fbHandle = 0;
-    m_fbPhyAddr = 0;
+    m_fbPhysAddr = 0;
   }
 
   if (m_buffers)
@@ -1812,7 +1829,7 @@ CDVDVideoCodecIMXIPUBuffers::Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer,
 bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
                                          const CRectInt *crop)
 {
-  if (!m_fbPhyAddr)
+  if (!m_fbPhysAddr)
   {
     CLog::Log(LOGERROR, "fbout: not initialized\n");
     return false;
@@ -1886,23 +1903,43 @@ bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
   task.output.width = m_fbWidth;
   task.output.height = m_fbHeight;
   task.output.format = _4CC('U', 'Y', 'V', 'Y');
-  task.output.paddr = m_fbPhyAddr + m_fbCurrentPage*m_fbPageSize;
+  task.output.paddr = m_fbPhysAddr + m_fbCurrentPage*m_fbPageSize;
 
   // Setup viewport cropping
+  CRectInt cropRect;
   if (crop != NULL)
   {
-    task.output.crop.pos.x = crop->x1;
-    task.output.crop.pos.y = crop->y1;
-    task.output.crop.w = crop->Width();
-    task.output.crop.h = crop->Height();
+    cropRect = *crop;
   }
   else
   {
-    task.output.crop.pos.x = 0;
-    task.output.crop.pos.y = 0;
-    task.output.crop.w     = m_fbWidth;
-    task.output.crop.h     = m_fbHeight;
+    cropRect.x1 = 0;
+    cropRect.y1 = 0;
+    cropRect.x2 = m_fbWidth;
+    cropRect.y2 = m_fbHeight;
   }
+
+  task.output.crop.pos.x = cropRect.x1;
+  task.output.crop.pos.y = cropRect.y1;
+  task.output.crop.w = cropRect.Width();
+  task.output.crop.h = cropRect.Height();
+
+  if (m_lastCrop != cropRect)
+  {
+    if (m_fbVirtAddr)
+    {
+      // Clear buffer
+      char *tmp_buf = m_fbVirtAddr;
+      int pixels = m_fbPageSize*m_fbPages/2;
+      for (int i = 0; i < pixels; ++i, tmp_buf += 2)
+      {
+        tmp_buf[0] = 128;
+        tmp_buf[1] = 16;
+      }
+    }
+  }
+
+  m_lastCrop = cropRect;
 
   ret = IPU_CHECK_ERR_INPUT_CROP;
   while ( ret != IPU_CHECK_OK && ret > IPU_CHECK_ERR_MIN ) {
