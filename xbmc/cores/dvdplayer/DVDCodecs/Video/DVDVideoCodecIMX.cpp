@@ -1764,11 +1764,9 @@ bool CDVDVideoCodecIMXIPUBuffers::Init(int width, int height, int numBuffers, in
     return false;
   }
 
-#if 1
   if (!m_fb.IsValid())
     m_fb.Init();
   m_fb.Clear();
-#endif
 
   m_ipuHandle = open("/dev/mxc_ipu", O_RDWR, 0);
   if (m_ipuHandle<=0)
@@ -1853,6 +1851,8 @@ bool CDVDVideoCodecIMXIPUBuffers::Close()
     m_ipuHandle = 0;
   }
 
+  m_fb.Clear();
+
   if (m_buffers)
   {
     for (int i=0; i < m_bufferNum; i++)
@@ -1914,8 +1914,8 @@ bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
     return false;
   }
 
-  if (m_fb.NeedSwap())
-    CLog::Log(LOGWARNING, "fbout: same page rendered again\n");
+  //if (m_fb.NeedSwap())
+  //  CLog::Log(LOGWARNING, "fbout: same page rendered again\n");
 
   int ret;
   struct ipu_task task;
