@@ -219,8 +219,10 @@ public:
   CDVDVideoCodecIMXIPUBuffer *
   Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer, bool lowMotion);
 
+  // Framebuffer interface
   bool BlitFB(CDVDVideoCodecIMXBuffer *buf, const CRectInt *crop = NULL);
   bool SwapFB();
+  void ClearFB();
 
 private:
   int                          m_ipuHandle;
