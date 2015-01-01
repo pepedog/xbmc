@@ -31,7 +31,6 @@
 #include "settings/DisplaySettings.h"
 #include "guilib/DispResource.h"
 #include "threads/SingleLock.h"
-#include "cores/VideoRenderers/RenderManager.h"
 #include "utils/log.h"
 #include "EGLWrapper.h"
 #include "EGLQuirks.h"
@@ -439,9 +438,7 @@ bool CWinSystemEGL::IsExtSupported(const char* extension)
 
 bool CWinSystemEGL::PresentRenderImpl(const CDirtyRegionList &dirty)
 {
-  g_renderManager.PreSwapBuffers();
   m_egl->SwapBuffers(m_display, m_surface);
-  g_renderManager.PostSwapBuffers();
   return true;
 }
 
