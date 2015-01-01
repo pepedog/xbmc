@@ -1583,6 +1583,7 @@ bool CDVDVideoCodecIMXIPUBuffers::Init(int width, int height, int numBuffers, in
   }
 
 #if 1
+  m_lastCrop = CRectInt(0,0,0,0);
   int fb0 = open("/dev/fb0", O_RDWR, 0);
 
   if (fb0 < 0)
@@ -1657,6 +1658,7 @@ bool CDVDVideoCodecIMXIPUBuffers::Init(int width, int height, int numBuffers, in
               m_fbPhysAddr = fb_fix.smem_start;
               m_fbVirtAddr = (char*)mmap(0, m_fbPageSize*m_fbPages, PROT_READ | PROT_WRITE, MAP_SHARED, m_fbHandle, 0);
               m_fbNeedSwap = false;
+              ClearFB();
               ioctl(m_fbHandle, FBIOBLANK, FB_BLANK_UNBLANK);
             }
           }
@@ -1751,15 +1753,7 @@ bool CDVDVideoCodecIMXIPUBuffers::Close()
 
   if (m_fbVirtAddr)
   {
-    // Clear buffer
-    char *tmp_buf = m_fbVirtAddr;
-    int pixels = m_fbPageSize*m_fbPages/2;
-    for (int i = 0; i < pixels; ++i, tmp_buf += 2)
-    {
-      tmp_buf[0] = 128;
-      tmp_buf[1] = 16;
-    }
-
+    ClearFB();
     munmap(m_fbVirtAddr, m_fbPageSize*m_fbPages);
     m_fbVirtAddr = NULL;
   }
@@ -1925,19 +1919,7 @@ bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
   task.output.crop.h = cropRect.Height();
 
   if (m_lastCrop != cropRect)
-  {
-    if (m_fbVirtAddr)
-    {
-      // Clear buffer
-      char *tmp_buf = m_fbVirtAddr;
-      int pixels = m_fbPageSize*m_fbPages/2;
-      for (int i = 0; i < pixels; ++i, tmp_buf += 2)
-      {
-        tmp_buf[0] = 128;
-        tmp_buf[1] = 16;
-      }
-    }
-  }
+    ClearFB();
 
   m_lastCrop = cropRect;
 
@@ -2002,6 +1984,19 @@ bool CDVDVideoCodecIMXIPUBuffers::SwapFB()
   m_fbCurrentPage = nextPage;
   m_fbNeedSwap = false;
   return true;
+}
+
+void CDVDVideoCodecIMXIPUBuffers::ClearFB()
+{
+  if (!m_fbVirtAddr) return;
+
+  char *tmp_buf = m_fbVirtAddr;
+  int pixels = m_fbPageSize*m_fbPages/2;
+  for (int i = 0; i < pixels; ++i, tmp_buf += 2)
+  {
+    tmp_buf[0] = 128;
+    tmp_buf[1] = 16;
+  }
 }
 
 CDVDVideoMixerIMX::CDVDVideoMixerIMX(CDVDVideoCodecIMXIPUBuffers *proc)
