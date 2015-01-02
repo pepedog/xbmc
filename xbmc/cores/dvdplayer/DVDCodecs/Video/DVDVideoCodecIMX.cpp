@@ -40,6 +40,7 @@
 #define MEDIAINFO 1
 #define _4CC(c1,c2,c3,c4) (((uint32_t)(c4)<<24)|((uint32_t)(c3)<<16)|((uint32_t)(c2)<<8)|(uint32_t)(c1))
 #define Align(ptr,align)  (((unsigned int)ptr + (align) - 1)/(align)*(align))
+#define Align2(ptr,align)  (((unsigned int)ptr)/(align)*(align))
 
 // Experiments show that we need at least one more (+1) VPU buffer than the min value returned by the VPU
 const int CDVDVideoCodecIMX::m_extraVpuBuffers = 6;
@@ -1656,10 +1657,10 @@ bool RenderFB1::Init()
   }
 
   // Final setup
-  int fbSize = fb_fix.line_length * m_fbVar.yres_virtual;
-  m_fbPageSize = fbSize / m_fbPages;
+  m_fbPhysSize = fb_fix.smem_len;
+  m_fbPageSize = fb_fix.line_length * m_fbVar.yres_virtual / m_fbPages;
   m_fbPhysAddr = fb_fix.smem_start;
-  m_fbVirtAddr = (char*)mmap(0, m_fbPageSize*m_fbPages, PROT_READ | PROT_WRITE, MAP_SHARED, m_fbHandle, 0);
+  m_fbVirtAddr = (char*)mmap(0, m_fbPhysSize, PROT_READ | PROT_WRITE, MAP_SHARED, m_fbHandle, 0);
   m_fbNeedSwap = false;
   Clear();
   ioctl(m_fbHandle, FBIOBLANK, FB_BLANK_UNBLANK);
@@ -1674,7 +1675,7 @@ bool RenderFB1::Close()
   if (m_fbVirtAddr)
   {
     Clear();
-    munmap(m_fbVirtAddr, m_fbPageSize*m_fbPages);
+    munmap(m_fbVirtAddr, m_fbPhysSize);
     m_fbVirtAddr = NULL;
   }
 
@@ -1733,7 +1734,7 @@ void RenderFB1::Clear()
   if (!m_fbVirtAddr) return;
 
   char *tmp_buf = m_fbVirtAddr;
-  int pixels = m_fbPageSize*m_fbPages/2;
+  int pixels = m_fbPhysSize/2;
   for (int i = 0; i < pixels; ++i, tmp_buf += 2)
   {
     tmp_buf[0] = 128;
@@ -1981,14 +1982,17 @@ bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
 
   task.output.width = m_fb.Width();
   task.output.height = m_fb.Height();
-  task.output.format = _4CC('U', 'Y', 'V', 'Y');
+  task.output.format = m_fb.Format();
   task.output.paddr = m_fb.GetPagePhysAddr();
 
   // Setup viewport cropping
   CRectInt cropRect;
   if (crop != NULL)
   {
-    cropRect = *crop;
+    cropRect.x1 = Align(crop->x1,8);
+    cropRect.y1 = Align(crop->y1,8);
+    cropRect.x2 = Align2(crop->x2,8);
+    cropRect.y2 = Align2(crop->y2,8);
   }
   else
   {
