@@ -209,6 +209,7 @@ public:
   bool IsValid() const         { return m_fbPages > 0; }
   int  Width() const           { return m_fbWidth; }
   int  Height() const          { return m_fbHeight; }
+  int  Format() const          { return m_fbVar.nonstd; }
   bool NeedSwap() const        { return m_fbNeedSwap; }
   int  GetPagePhysAddr() const { return m_fbPhysAddr + m_fbCurrentPage*m_fbPageSize; }
 
@@ -230,6 +231,7 @@ private:
   int                          m_fbWidth;
   int                          m_fbHeight;
   int                          m_fbPageSize;
+  int                          m_fbPhysSize;
   int                          m_fbPhysAddr;
   char                        *m_fbVirtAddr;
   struct fb_var_screeninfo     m_fbVar;
