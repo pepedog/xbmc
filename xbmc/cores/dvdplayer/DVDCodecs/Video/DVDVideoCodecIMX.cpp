@@ -1573,12 +1573,6 @@ RenderFB1::~RenderFB1()
 
 bool RenderFB1::Init()
 {
-  if (m_fbHandle)
-  {
-    CLog::Log(LOGERROR, "fb already initialized, call Close first\n");
-    return false;
-  }
-
   m_lastCrop = CRectInt(0,0,0,0);
 
   int fb0 = open("/dev/fb0", O_RDWR, 0);
@@ -1589,7 +1583,8 @@ bool RenderFB1::Init()
     return false;
   }
 
-  if (ioctl(fb0, FBIOGET_VSCREENINFO, &m_fbVar) < 0)
+  struct fb_var_screeninfo fbVar;
+  if (ioctl(fb0, FBIOGET_VSCREENINFO, &fbVar) < 0)
   {
     CLog::Log(LOGWARNING, "Failed to read primary screen resolution\n");
     return false;
@@ -1605,6 +1600,17 @@ bool RenderFB1::Init()
   lalpha.alpha_in_pixel = 1;
   ioctl(fb0, MXCFB_SET_LOC_ALPHA, &lalpha);
   close(fb0);
+
+  if (m_fbHandle)
+  {
+    // Check for updated screen resolution
+    if ((m_fbWidth != fbVar.xres) || (m_fbHeight != fbVar.yres))
+      Close();
+    else
+      return true;
+  }
+
+  memcpy(&m_fbVar, &fbVar, sizeof(fbVar));
 
   const char *deviceName = "/dev/fb1";
   // Open Framebuffer and gets its address
@@ -1765,8 +1771,7 @@ bool CDVDVideoCodecIMXIPUBuffers::Init(int width, int height, int numBuffers, in
     return false;
   }
 
-  if (!m_fb.IsValid())
-    m_fb.Init();
+  m_fb.Init();
   m_fb.Clear();
 
   m_ipuHandle = open("/dev/mxc_ipu", O_RDWR, 0);
@@ -1906,7 +1911,7 @@ CDVDVideoCodecIMXIPUBuffers::Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer,
   return target;
 }
 
-bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
+bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *b,
                                          const CRectInt *crop)
 {
   if (!m_fb.IsValid())
@@ -1914,6 +1919,11 @@ bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *buf,
     CLog::Log(LOGERROR, "fbout: not initialized\n");
     return false;
   }
+
+  // Only VPU buffers are passed. The interface should be changed in
+  // future to incorporate that. Currently the GPU path is still active
+  // and can be switched on easily although it is much slower.
+  CDVDVideoCodecIMXVPUBuffer *buf = static_cast<CDVDVideoCodecIMXVPUBuffer*>(b);
 
   //if (m_fb.NeedSwap())
   //  CLog::Log(LOGWARNING, "fbout: same page rendered again\n");
