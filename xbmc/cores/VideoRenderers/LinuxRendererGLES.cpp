@@ -3134,7 +3134,7 @@ void CLinuxRendererGLES::AddProcessor(CDVDVideoCodecIMXBuffer *buffer, int index
 
 bool CLinuxRendererGLES::HasFrame()
 {
-  if (m_format == RENDER_FMT_BYPASS)
+  if (m_format == RENDER_FMT_BYPASS || m_format == RENDER_FMT_IMXMAP)
     return false;
   else
     return true;
