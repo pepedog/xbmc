@@ -52,10 +52,6 @@ migrate_home()
       echo "INFO: migrating userdata folder. Renaming ${HOME}/.xbmc to $USERDATA_DIR"
       mv ${HOME}/.xbmc $USERDATA_DIR
       touch ${USERDATA_DIR}/.kodi_data_was_migrated
-  elif [ -d "${HOME}/.kodi" ] && [ ! -d "${USERDATA_DIR}" ]; then
-      echo "INFO: migrating userdata folder. Renaming ${HOME}/.kodi to $USERDATA_DIR"
-      mv ${HOME}/.kodi $USERDATA_DIR
-      touch ${USERDATA_DIR}/.kodi_data_was_migrated
   fi
 }
 
