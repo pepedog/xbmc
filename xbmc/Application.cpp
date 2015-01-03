@@ -1081,7 +1081,7 @@ bool CApplication::InitDirectoriesLinux()
   else
     userHome = "/root";
 
-  std::string appBinPath, appPath;
+  std::string appBinPath, appPath, xdgPath;
   std::string appName = CCompileInfo::GetAppName();
   std::string dotLowerAppName = "." + appName;
   StringUtils::ToLower(dotLowerAppName);
@@ -1109,6 +1109,14 @@ bool CApplication::InitDirectoriesLinux()
     }
   }
 
+  const char* xdgDataHome = "XDG_DATA_HOME";
+  if (getenv(xdgDataHome))
+    xdgPath = getenv(xdgDataHome);
+  else
+  {
+    xdgPath = userHome + "/.local/share/";
+  }
+
   /* Set some environment variables */
   setenv(envAppBinHome, appBinPath.c_str(), 0);
   setenv(envAppHome, appPath.c_str(), 0);
@@ -1118,11 +1126,11 @@ bool CApplication::InitDirectoriesLinux()
     // map our special drives
     CSpecialProtocol::SetXBMCBinPath(appBinPath);
     CSpecialProtocol::SetXBMCPath(appPath);
-    CSpecialProtocol::SetHomePath(userHome + "/" + dotLowerAppName);
-    CSpecialProtocol::SetMasterProfilePath(userHome + "/" + dotLowerAppName + "/userdata");
+    CSpecialProtocol::SetHomePath(xdgPath + lowerAppName);
+    CSpecialProtocol::SetMasterProfilePath(xdgPath + lowerAppName + "/userdata");
 
-    std::string strTempPath = userHome;
-    strTempPath = URIUtils::AddFileToFolder(strTempPath, dotLowerAppName + "/temp");
+    CStdString strTempPath = xdgPath;
+    strTempPath = URIUtils::AddFileToFolder(strTempPath, lowerAppName + "/temp");
     if (getenv(envAppTemp))
       strTempPath = getenv(envAppTemp);
     CSpecialProtocol::SetTempPath(strTempPath);
