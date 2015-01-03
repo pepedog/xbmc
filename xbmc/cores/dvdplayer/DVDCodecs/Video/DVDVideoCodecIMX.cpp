@@ -1587,19 +1587,9 @@ bool RenderFB1::Init()
   if (ioctl(fb0, FBIOGET_VSCREENINFO, &fbVar) < 0)
   {
     CLog::Log(LOGWARNING, "Failed to read primary screen resolution\n");
+    close(fb0);
     return false;
   }
-
-  struct mxcfb_gbl_alpha alpha;
-  struct mxcfb_loc_alpha lalpha;
-
-  alpha.alpha = 255;
-  alpha.enable = 1;
-  ioctl(fb0, MXCFB_SET_GBL_ALPHA, &alpha);
-  lalpha.enable = 1;
-  lalpha.alpha_in_pixel = 1;
-  ioctl(fb0, MXCFB_SET_LOC_ALPHA, &lalpha);
-  close(fb0);
 
   if (m_fbHandle)
   {
@@ -1607,8 +1597,13 @@ bool RenderFB1::Init()
     if ((m_fbWidth != fbVar.xres) || (m_fbHeight != fbVar.yres))
       Close();
     else
+    {
+      close(fb0);
       return true;
+    }
   }
+
+  close(fb0);
 
   memcpy(&m_fbVar, &fbVar, sizeof(fbVar));
 
