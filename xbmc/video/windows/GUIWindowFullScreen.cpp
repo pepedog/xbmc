@@ -545,20 +545,6 @@ EVENT_RESULT CGUIWindowFullScreen::OnMouseEvent(const CPoint &point, const CMous
 
 void CGUIWindowFullScreen::FrameMove()
 {
-  g_renderManager.FrameMove();
-
-  // drive rendermanager with render buffers in case we won't call
-  // Render(). Do not clear background in this case.
-  m_bHasRendered = !m_bRenderBypass;
-  m_bRenderBypass = g_renderManager.RenderBypass();
-  if (m_bRenderBypass)
-  {
-    g_graphicsContext.SetRenderingResolution(g_graphicsContext.GetVideoResolution(), false);
-    g_renderManager.Render(m_bHasRendered, 0, 255);
-    g_graphicsContext.SetRenderingResolution(m_coordsRes, m_needsScaling);
-    g_renderManager.FrameFinish();
-  }
-
   if (g_application.m_pPlayer->GetPlaySpeed() != 1)
     g_infoManager.SetDisplayAfterSeek();
   if (m_bShowCurrentTime)
@@ -745,11 +731,13 @@ void CGUIWindowFullScreen::FrameMove()
     SET_CONTROL_HIDDEN(BLUE_BAR);
     SET_CONTROL_HIDDEN(CONTROL_GROUP_CHOOSER);
   }
+
+  g_renderManager.FrameMove();
 }
 
 void CGUIWindowFullScreen::Process(unsigned int currentTime, CDirtyRegionList &dirtyregion)
 {
-  if (!m_bRenderBypass || m_bHasRendered)
+  if (g_renderManager.IsGuiLayer())
     MarkDirtyRegion();
 
   CGUIWindow::Process(currentTime, dirtyregion);
@@ -764,8 +752,15 @@ void CGUIWindowFullScreen::Render()
   g_graphicsContext.SetRenderingResolution(g_graphicsContext.GetVideoResolution(), false);
   g_renderManager.Render(true, 0, 255);
   g_graphicsContext.SetRenderingResolution(m_coordsRes, m_needsScaling);
-  g_renderManager.FrameFinish();
   CGUIWindow::Render();
+}
+
+void CGUIWindowFullScreen::AfterRender()
+{
+  CGUIWindow::AfterRender();
+  g_graphicsContext.SetRenderingResolution(g_graphicsContext.GetVideoResolution(), false);
+  g_renderManager.Render(false, 0, 255, false);
+  g_renderManager.FrameFinish();
 }
 
 void CGUIWindowFullScreen::ChangetheTimeCode(int remote)
