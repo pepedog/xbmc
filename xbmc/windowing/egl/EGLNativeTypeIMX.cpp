@@ -25,6 +25,7 @@
 #include <math.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
+#include <linux/mxcfb.h>
 #include "utils/log.h"
 #include "utils/RegExp.h"
 #include "utils/StringUtils.h"
@@ -54,6 +55,7 @@ bool CEGLNativeTypeIMX::CheckCompatibility()
 void CEGLNativeTypeIMX::Initialize()
 {
   int fd;
+  struct mxcfb_loc_alpha lalpha;
 
   fd = open("/dev/fb0",O_RDWR);
   if (fd < 0)
@@ -61,6 +63,11 @@ void CEGLNativeTypeIMX::Initialize()
     CLog::Log(LOGERROR, "%s - Error while opening /dev/fb0.\n", __FUNCTION__);
     return;
   }
+
+  // Configure local alpha
+  lalpha.enable = 1;
+  lalpha.alpha_in_pixel = 1;
+  ioctl(fd, MXCFB_SET_LOC_ALPHA, &lalpha);
 
   // Unblank the fb
   if (ioctl(fd, FBIOBLANK, 0) < 0)
