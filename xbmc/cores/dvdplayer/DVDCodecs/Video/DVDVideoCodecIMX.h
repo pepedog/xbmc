@@ -106,6 +106,9 @@ public:
 
   VpuFieldType  GetFieldType() const { return fieldType; }
 
+  // Blits the buffer via IPU directly to the framebuffer
+  bool Blit(const CRectInt *crop = NULL);
+
   uint32_t                     iWidth;
   uint32_t                     iHeight;
   uint8_t                     *pPhysAddr;
