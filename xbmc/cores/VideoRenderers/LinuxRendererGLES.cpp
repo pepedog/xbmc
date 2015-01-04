@@ -606,18 +606,6 @@ void CLinuxRendererGLES::RenderUpdateVideo(bool clear, DWORD flags, DWORD alpha)
     if (m_RenderUpdateCallBackFn)
       (*m_RenderUpdateCallBackFn)(m_RenderUpdateCallBackCtx, m_sourceRect, m_destRect);
 
-    CRect old = g_graphicsContext.GetScissors();
-
-    g_graphicsContext.BeginPaint();
-    g_graphicsContext.SetScissors(m_destRect);
-
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glClearColor(0, 0, 0, 0);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    g_graphicsContext.SetScissors(old);
-    g_graphicsContext.EndPaint();
     return;
   }
 }
