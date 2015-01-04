@@ -765,8 +765,6 @@ void CGUIWindowFullScreen::AfterRender()
 {
   CGUIWindow::AfterRender();
   g_graphicsContext.SetRenderingResolution(g_graphicsContext.GetVideoResolution(), false);
-  g_renderManager.Render(false, 0, 255, false);
-  g_renderManager.FrameFinish();
 }
 
 void CGUIWindowFullScreen::ChangetheTimeCode(int remote)
