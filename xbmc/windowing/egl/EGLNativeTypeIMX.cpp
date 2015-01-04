@@ -93,7 +93,7 @@ void CEGLNativeTypeIMX::Initialize()
 
   // Switch to 32bit if not set already
   std::string bpp;
-  if (get_sysfs_str("/sys/class/graphics/fb0/bits_per_pixel", bpp))
+  if (SysfsUtils::GetString("/sys/class/graphics/fb0/bits_per_pixel", bpp))
   {
     CLog::Log(LOGWARNING, "%s - determining current bits per pixel failed\n", __FUNCTION__);
   }
@@ -102,7 +102,7 @@ void CEGLNativeTypeIMX::Initialize()
     StringUtils::Trim(bpp);
     if (bpp != "32")
     {
-      if (set_sysfs_str("/sys/class/graphics/fb0/bits_per_pixel", "32"))
+      if (SysfsUtils::SetString("/sys/class/graphics/fb0/bits_per_pixel", "32"))
       {
         CLog::Log(LOGWARNING, "%s - setting bits per pixel to 32 failed\n", __FUNCTION__);
       }
