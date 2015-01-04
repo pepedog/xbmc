@@ -92,6 +92,16 @@ void CGUIVideoControl::Render()
   CGUIControl::Render();
 }
 
+void CGUIVideoControl::RenderEx()
+{
+#ifdef HAS_VIDEO_PLAYBACK
+  if (g_application.m_pPlayer->IsPlayingVideo() && g_renderManager.IsStarted())
+    g_renderManager.Render(false, 0, 255, false);
+  g_renderManager.FrameFinish();
+#endif
+  CGUIControl::RenderEx();
+}
+
 EVENT_RESULT CGUIVideoControl::OnMouseEvent(const CPoint &point, const CMouseEvent &event)
 {
   if (!g_application.m_pPlayer->IsPlayingVideo()) return EVENT_RESULT_UNHANDLED;
