@@ -625,6 +625,21 @@ void CLinuxRendererGLES::RenderUpdateVideo(bool clear, DWORD flags, DWORD alpha)
     g_graphicsContext.EndPaint();
     return;
   }
+  else if (m_renderMethod & RENDER_IMXMAP)
+  {
+    ManageDisplay();
+
+    g_graphicsContext.BeginPaint();
+
+    m_iLastRenderBuffer = m_iYV12RenderBuffer;
+
+    Render(flags, m_iYV12RenderBuffer);
+
+    VerifyGLState();
+    glEnable(GL_BLEND);
+
+    g_graphicsContext.EndPaint();
+  }
 }
 
 void CLinuxRendererGLES::FlipPage(int source)
@@ -1693,32 +1708,26 @@ void CLinuxRendererGLES::RenderIMXMAPTexture(int index, int field)
   if (buffer == NULL || !buffer->IsValid()) return;
   if (buffer->ipu == NULL) return;
 
-  // Get visible area
-  float x0,y0,x1,y1;
-  x0 = m_rotatedDestCoords[0].x; y0 = m_rotatedDestCoords[0].y;
-  x1 = m_rotatedDestCoords[0].x; y1 = m_rotatedDestCoords[0].y;
-  for(int i = 1; i < 4; i++)
-  {
-    x0 = min(x0, m_rotatedDestCoords[i].x);
-    y0 = min(y0, m_rotatedDestCoords[i].y);
-    x1 = max(x1, m_rotatedDestCoords[i].x);
-    y1 = max(y1, m_rotatedDestCoords[i].y);
-  }
-
   // If player window is not fullscreen, cut a hole into the backbuffer
+  /*
   if (!g_graphicsContext.IsFullScreenVideo())
   {
-    glEnable(GL_SCISSOR_TEST);
-    glScissor((GLint)x0, (GLint)(g_graphicsContext.GetHeight()-y1),
-              (GLsizei)(x1-x0), (GLsizei)(y1-y0));
+    CRect old = g_graphicsContext.GetScissors();
+    g_graphicsContext.BeginPaint();
+    g_graphicsContext.SetScissors(m_destRect);
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT);
-    glDisable(GL_SCISSOR_TEST);
+    g_graphicsContext.SetScissors(old);
+    g_graphicsContext.EndPaint();
   }
+  */
 
-  if (x0>0 || y0>0 || x1<g_graphicsContext.GetWidth() || y1<g_graphicsContext.GetHeight())
+  if ((m_destRect.x1>0)
+   || (m_destRect.y1>0)
+   || (m_destRect.x2<g_graphicsContext.GetWidth())
+   || (m_destRect.y2<g_graphicsContext.GetHeight()))
   {
-    CRectInt crop((int)x0, (int)y0, (int)x1, (int)y1);
+    CRectInt crop((int)m_destRect.x1, (int)m_destRect.y1, (int)m_destRect.x2, (int)m_destRect.y2);
     buffer->ipu->BlitFB(buffer, &crop);
   }
   else
@@ -2766,6 +2775,7 @@ void CLinuxRendererGLES::SetTextureFilter(GLenum method)
 void CLinuxRendererGLES::UploadIMXMAPTexture(int index)
 {
 #ifdef HAS_IMXVPU
+#if 0
   YUVBUFFER& buf =  m_buffers[index];
   CDVDVideoCodecIMXBuffer* IMXBuffer = buf.IMXBuffer;
 
@@ -2810,6 +2820,7 @@ void CLinuxRendererGLES::UploadIMXMAPTexture(int index)
 
     glDisable(m_textureTarget);
   }
+#endif
 #endif
 }
 
