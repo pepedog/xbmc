@@ -30,10 +30,11 @@ public:
   virtual ~CGUIWindowFullScreen(void);
   virtual bool OnMessage(CGUIMessage& message);
   virtual bool OnAction(const CAction &action);
+  virtual void ClearBackground();
   virtual void FrameMove();
   virtual void Process(unsigned int currentTime, CDirtyRegionList &dirtyregion);
   virtual void Render();
-  virtual void AfterRender();
+  virtual void RenderEx();
   virtual void OnWindowLoaded();
   void ChangetheTimeCode(int remote);
   void ChangetheTVGroup(bool next);

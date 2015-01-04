@@ -284,7 +284,7 @@ bool CGUIWindowFullScreen::OnAction(const CAction &action)
           CStdString strChannel = StringUtils::Format("%i", action.GetID() - REMOTE_0);
           if (CGUIDialogNumeric::ShowAndGetNumber(strChannel, g_localizeStrings.Get(19000)))
             iChannelNumber = atoi(strChannel.c_str());
-            
+
           if (iChannelNumber > 0)
             g_application.OnAction(CAction(ACTION_CHANNEL_SWITCH, (float)iChannelNumber));
         }
@@ -351,6 +351,12 @@ bool CGUIWindowFullScreen::OnAction(const CAction &action)
   }
 
   return CGUIWindow::OnAction(action);
+}
+
+void CGUIWindowFullScreen::ClearBackground()
+{
+  if (!g_renderManager.IsGuiLayer())
+    g_graphicsContext.Clear(0);
 }
 
 void CGUIWindowFullScreen::OnWindowLoaded()
@@ -755,12 +761,14 @@ void CGUIWindowFullScreen::Render()
   CGUIWindow::Render();
 }
 
-void CGUIWindowFullScreen::AfterRender()
+void CGUIWindowFullScreen::RenderEx()
 {
-  CGUIWindow::AfterRender();
+  CGUIWindow::RenderEx();
   g_graphicsContext.SetRenderingResolution(g_graphicsContext.GetVideoResolution(), false);
+#ifdef HAS_VIDEO_PLAYBACK
   g_renderManager.Render(false, 0, 255, false);
   g_renderManager.FrameFinish();
+#endif
 }
 
 void CGUIWindowFullScreen::ChangetheTimeCode(int remote)
