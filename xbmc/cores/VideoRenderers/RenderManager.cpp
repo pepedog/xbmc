@@ -772,7 +772,8 @@ void CXBMCRenderManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
 {
   CSharedLock lock(m_sharedSection);
 
-  if (!gui && m_pRenderer->IsGuiLayer())
+  bool guilayer = m_pRenderer->IsGuiLayer();
+  if (!gui && guilayer)
     return;
 
   if (!gui || m_pRenderer->IsGuiLayer())
@@ -787,6 +788,16 @@ void CXBMCRenderManager::Render(bool clear, DWORD flags, DWORD alpha, bool gui)
       PresentBlend(clear, flags, alpha);
     else
       PresentSingle(clear, flags, alpha);
+  }
+  else if (gui)
+  {
+    // in case rederer does not render to gui layer we
+    // need to clear the background. GUIWindowFullScreen has
+    // marked itself dirty.
+    if(g_graphicsContext.IsFullScreenVideo())
+    {
+      g_graphicsContext.Clear(0xff000000);
+    }
   }
 
   if (gui)
