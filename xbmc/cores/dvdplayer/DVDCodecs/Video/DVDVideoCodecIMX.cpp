@@ -1150,6 +1150,12 @@ void CDVDVideoCodecIMXBuffer::SetDts(double dts)
   m_dts = dts;
 }
 
+bool CDVDVideoCodecIMXBuffer::Blit(const CRectInt *crop)
+{
+  if (!ipu) return false;
+  return ipu->BlitFB(this, crop);
+}
+
 #ifdef TRACE_FRAMES
 CDVDVideoCodecIMXVPUBuffer::CDVDVideoCodecIMXVPUBuffer(int idx)
   : CDVDVideoCodecIMXBuffer(idx)
@@ -1184,7 +1190,7 @@ long CDVDVideoCodecIMXVPUBuffer::Release()
     // Only referenced by the codec and its next frame, release the previous
     SAFE_RELEASE(m_previousBuffer);
   }
-  if (count == 1)
+  else if (count == 1)
   {
     // If count drops to 1 then the only reference is being held by the codec
     // that it can be released in the next Decode call.
