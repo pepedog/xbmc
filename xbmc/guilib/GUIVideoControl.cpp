@@ -42,9 +42,10 @@ CGUIVideoControl::~CGUIVideoControl(void)
 
 void CGUIVideoControl::Process(unsigned int currentTime, CDirtyRegionList &dirtyregions)
 {
+  g_renderManager.FrameMove();
+
   // TODO Proper processing which marks when its actually changed. Just mark always for now.
-  if (g_renderManager.RendererHandlesPresent())
-    MarkDirtyRegion();
+  MarkDirtyRegion();
 
   CGUIControl::Process(currentTime, dirtyregions);
 }
@@ -73,6 +74,11 @@ void CGUIVideoControl::Render()
     ((CDummyVideoPlayer *)g_application.m_pPlayer->GetInternal())->Render();
 #endif
   }
+  // TODO: remove this crap: HAS_VIDEO_PLAYBACK
+  // instantiateing a vidio control having no playback is complete nonsense
+#ifdef HAS_VIDEO_PLAYBACK
+  g_renderManager.FrameFinish();
+#endif
   CGUIControl::Render();
 }
 
