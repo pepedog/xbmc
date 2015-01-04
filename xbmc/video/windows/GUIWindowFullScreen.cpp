@@ -761,10 +761,14 @@ void CGUIWindowFullScreen::Render()
   CGUIWindow::Render();
 }
 
-void CGUIWindowFullScreen::AfterRender()
+void CGUIWindowFullScreen::RenderEx()
 {
-  CGUIWindow::AfterRender();
+  CGUIWindow::RenderEx();
   g_graphicsContext.SetRenderingResolution(g_graphicsContext.GetVideoResolution(), false);
+#ifdef HAS_VIDEO_PLAYBACK
+  g_renderManager.Render(false, 0, 255, false);
+  g_renderManager.FrameFinish();
+#endif
 }
 
 void CGUIWindowFullScreen::ChangetheTimeCode(int remote)

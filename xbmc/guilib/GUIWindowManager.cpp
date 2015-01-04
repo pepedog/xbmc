@@ -540,12 +540,30 @@ void CGUIWindowManager::RenderPass() const
   // we render the dialogs based on their render order.
   vector<CGUIWindow *> renderList = m_activeDialogs;
   stable_sort(renderList.begin(), renderList.end(), RenderOrderSortFunction);
-  
+
   for (iDialog it = renderList.begin(); it != renderList.end(); ++it)
   {
     if ((*it)->IsDialogRunning())
       (*it)->DoRender();
   }
+}
+
+void CGUIWindowManager::RenderEx() const
+{
+  CGUIWindow* pWindow = GetWindow(GetActiveWindow());
+  if (pWindow)
+    pWindow->RenderEx();
+
+  // We don't call RenderEx for now on dialogs since it is used
+  // to trigger non gui video rendering. We can activate it later at any time.
+  /*
+  vector<CGUIWindow *> &activeDialogs = m_activeDialogs;
+  for (iDialog it = activeDialogs.begin(); it != activeDialogs.end(); ++it)
+  {
+    if ((*it)->IsDialogRunning())
+      (*it)->RenderEx();
+  }
+  */
 }
 
 bool CGUIWindowManager::Render()
@@ -587,12 +605,14 @@ bool CGUIWindowManager::Render()
   if (g_advancedSettings.m_guiVisualizeDirtyRegions)
   {
     g_graphicsContext.SetRenderingResolution(g_graphicsContext.GetResInfo(), false);
-    const CDirtyRegionList &markedRegions  = m_tracker.GetMarkedRegions(); 
+    const CDirtyRegionList &markedRegions  = m_tracker.GetMarkedRegions();
     for (CDirtyRegionList::const_iterator i = markedRegions.begin(); i != markedRegions.end(); ++i)
       CGUITexture::DrawQuad(*i, 0x0fff0000);
     for (CDirtyRegionList::const_iterator i = dirtyRegions.begin(); i != dirtyRegions.end(); ++i)
       CGUITexture::DrawQuad(*i, 0x4c00ff00);
   }
+
+  RenderEx();
 
   return hasRendered;
 }
