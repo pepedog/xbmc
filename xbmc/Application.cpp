@@ -2290,11 +2290,11 @@ void CApplication::Render()
   // execute post rendering actions (finalize window closing)
   g_windowManager.AfterRender();
 
-  if (g_renderManager.IsConfigured())
-  {
+#ifdef HAS_VIDEO_PLAYBACK
+  if (m_pPlayer->IsPlayingVideo() && g_renderManager.IsStarted())
     g_renderManager.Render(false, 0, 255, false);
-    g_renderManager.FrameFinish();
-  }
+  g_renderManager.FrameFinish();
+#endif
 
   // reset our info cache - we do this at the end of Render so that it is
   // fresh for the next process(), or after a windowclose animation (where process()
