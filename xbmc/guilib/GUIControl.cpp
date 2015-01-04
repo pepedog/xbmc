@@ -511,6 +511,7 @@ void CGUIControl::SetVisible(bool bVisible, bool setVisState)
   {
     m_forceHidden = !bVisible;
     SetInvalid();
+    if (m_forceHidden) MarkDirtyRegion();
   }
   if (m_forceHidden)
   { // reset any visible animations that are in process
