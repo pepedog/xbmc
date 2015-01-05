@@ -109,6 +109,9 @@ public:
   // Blits the buffer via IPU directly to the framebuffer
   bool Blit(const CRectInt *crop = NULL);
 
+  // Shows the buffer by flipping the fb page
+  bool Show();
+
   uint32_t                     iWidth;
   uint32_t                     iHeight;
   uint8_t                     *pPhysAddr;

@@ -1157,6 +1157,12 @@ bool CDVDVideoCodecIMXBuffer::Blit(const CRectInt *crop)
   return ipu->BlitFB(this, crop);
 }
 
+bool CDVDVideoCodecIMXBuffer::Show()
+{
+  if (!ipu) return false;
+  return ipu->SwapFB();
+}
+
 #ifdef TRACE_FRAMES
 CDVDVideoCodecIMXVPUBuffer::CDVDVideoCodecIMXVPUBuffer(int idx)
   : CDVDVideoCodecIMXBuffer(idx)
@@ -1671,6 +1677,9 @@ bool RenderFB1::Init()
   m_fbPhysAddr = fb_fix.smem_start;
   m_fbVirtAddr = (char*)mmap(0, m_fbPhysSize, PROT_READ | PROT_WRITE, MAP_SHARED, m_fbHandle, 0);
   m_fbNeedSwap = false;
+
+  printf("smem_len = %u\n", fb_fix.smem_len);
+
   Clear();
   Unblank();
 
@@ -1755,7 +1764,7 @@ void RenderFB1::Clear()
   if (!m_fbVirtAddr) return;
 
   char *tmp_buf = m_fbVirtAddr;
-  int pixels = m_fbPhysSize/2;
+  int pixels = m_fbPageSize*m_fbPages/2;
   for (int i = 0; i < pixels; ++i, tmp_buf += 2)
   {
     tmp_buf[0] = 128;
