@@ -659,6 +659,7 @@ void CDVDVideoCodecIMX::Dispose(void)
     m_converter->Close();
     SAFE_DELETE(m_converter);
   }
+
   return;
 }
 
@@ -1605,6 +1606,7 @@ bool RenderFB1::Init()
     else
     {
       close(fb0);
+      Unblank();
       return true;
     }
   }
@@ -1670,7 +1672,7 @@ bool RenderFB1::Init()
   m_fbVirtAddr = (char*)mmap(0, m_fbPhysSize, PROT_READ | PROT_WRITE, MAP_SHARED, m_fbHandle, 0);
   m_fbNeedSwap = false;
   Clear();
-  ioctl(m_fbHandle, FBIOBLANK, FB_BLANK_UNBLANK);
+  Unblank();
 
   CLog::Log(LOGNOTICE, "Initialized fb output with %d pages\n", m_fbPages);
 
@@ -1688,7 +1690,7 @@ bool RenderFB1::Close()
 
   if (m_fbHandle)
   {
-    ioctl(m_fbHandle, FBIOBLANK, 1);
+    Blank();
     close(m_fbHandle);
     m_fbPages = 0;
     m_fbCurrentPage = 0;
@@ -1699,6 +1701,18 @@ bool RenderFB1::Close()
   CLog::Log(LOGNOTICE, "Closed fb output\n", m_fbPages);
 
   return true;
+}
+
+bool RenderFB1::Blank()
+{
+  if (!m_fbHandle) return false;
+  return ioctl(m_fbHandle, FBIOBLANK, 1) == 0;
+}
+
+bool RenderFB1::Unblank()
+{
+  if (!m_fbHandle) return false;
+  return ioctl(m_fbHandle, FBIOBLANK, FB_BLANK_UNBLANK) == 0;
 }
 
 void RenderFB1::SetViewport(const CRectInt &r)
@@ -1858,6 +1872,8 @@ bool CDVDVideoCodecIMXIPUBuffers::Close()
     m_ipuHandle = 0;
   }
 
+  // Blank fb and clear it
+  m_fb.Blank();
   m_fb.Clear();
 
   if (m_buffers)
@@ -1870,6 +1886,7 @@ bool CDVDVideoCodecIMXIPUBuffers::Close()
   }
 
   m_bufferNum = 0;
+
   return true;
 }
 
