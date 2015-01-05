@@ -209,6 +209,9 @@ public:
   bool Init();
   bool Close();
 
+  bool Blank();
+  bool Unblank();
+
   bool IsValid() const         { return m_fbPages > 0; }
   int  Width() const           { return m_fbWidth; }
   int  Height() const          { return m_fbHeight; }
