@@ -1416,7 +1416,7 @@ bool RenderFB1::Init(int pages)
     return false;
   }
 
-  // We want two fb pages
+  // We want n fb pages
   m_fbPages = pages;
 
   m_fbVar.xoffset = 0;
