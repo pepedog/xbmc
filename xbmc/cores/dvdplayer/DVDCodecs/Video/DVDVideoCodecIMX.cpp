@@ -1690,128 +1690,6 @@ CDVDVideoCodecIMXIPUBuffers::Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer)
   return target;
 }
 
-#if 0
-bool CDVDVideoCodecIMXIPUBuffers::BlitFB(CDVDVideoCodecIMXBuffer *b,
-                                         const CRectInt *crop)
-{
-  if (!m_fb.IsValid())
-  {
-    CLog::Log(LOGERROR, "fbout: not initialized\n");
-    return false;
-  }
-
-  // Only VPU buffers are passed. The interface should be changed in
-  // future to incorporate that. Currently the GPU path is still active
-  // and can be switched on easily although it is much slower.
-  CDVDVideoCodecIMXVPUBuffer *buf = static_cast<CDVDVideoCodecIMXVPUBuffer*>(b);
-
-  int ret;
-  struct ipu_task task;
-  memset(&task, 0, sizeof(task));
-
-  task.input.width = buf->iWidth;
-  task.input.height = buf->iHeight;
-  task.input.crop.pos.x = 0;
-  task.input.crop.pos.y = 0;
-  task.input.crop.w = buf->iWidth;
-  task.input.crop.h = buf->iHeight;
-  task.input.format = buf->iFormat;
-  task.input.paddr = buf->pPhysAddr;
-
-  EDEINTERLACEMODE mDeintMode = CMediaSettings::Get().GetCurrentVideoSettings().m_DeinterlaceMode;
-  //EINTERLACEMETHOD mInt       = CMediaSettings::Get().GetCurrentVideoSettings().m_InterlaceMethod;
-
-  bool deinterlacing = ((mDeintMode == VS_DEINTERLACEMODE_AUTO) && AutoMode()) ||
-                        (mDeintMode == VS_DEINTERLACEMODE_FORCE);
-
-  // Setup deinterlacing if enabled
-  if (deinterlacing)
-  {
-    VpuFieldType fieldType;
-
-    task.input.deinterlace.enable = 1;
-    task.input.deinterlace.motion = HIGH_MOTION;
-    fieldType = buf->GetFieldType();
-
-    switch (fieldType)
-    {
-      case VPU_FIELD_TOP:
-      case VPU_FIELD_TB:
-        task.input.deinterlace.field_fmt |= IPU_DEINTERLACE_FIELD_TOP;
-        break;
-      case VPU_FIELD_BOTTOM:
-      case VPU_FIELD_BT:
-        task.input.deinterlace.field_fmt |= IPU_DEINTERLACE_FIELD_BOTTOM;
-        break;
-      default:
-        break;
-    }
-  }
-
-  task.output.width = m_fb.Width();
-  task.output.height = m_fb.Height();
-  task.output.format = m_fb.Format();
-  task.output.paddr = m_fb.GetPagePhysAddr();
-
-  // Setup viewport cropping
-  CRectInt cropRect;
-  if (crop != NULL)
-  {
-    cropRect.x1 = Align(crop->x1,8);
-    cropRect.y1 = Align(crop->y1,8);
-    cropRect.x2 = Align2(crop->x2,8);
-    cropRect.y2 = Align2(crop->y2,8);
-  }
-  else
-  {
-    cropRect.x1 = 0;
-    cropRect.y1 = 0;
-    cropRect.x2 = m_fb.Width();
-    cropRect.y2 = m_fb.Height();
-  }
-
-  task.output.crop.pos.x = cropRect.x1;
-  task.output.crop.pos.y = cropRect.y1;
-  task.output.crop.w = cropRect.Width();
-  task.output.crop.h = cropRect.Height();
-
-  m_fb.SetViewport(cropRect);
-
-  ret = IPU_CHECK_ERR_INPUT_CROP;
-  while ( ret != IPU_CHECK_OK && ret > IPU_CHECK_ERR_MIN ) {
-    ret = ioctl(m_ipuHandle, IPU_CHECK_TASK, &task);
-    switch (ret)
-    {
-      case IPU_CHECK_OK:
-        break;
-      case IPU_CHECK_ERR_SPLIT_INPUTW_OVER:
-        task.input.crop.w -= 8;
-        break;
-      case IPU_CHECK_ERR_SPLIT_INPUTH_OVER:
-        task.input.crop.h -= 8;
-        break;
-      case IPU_CHECK_ERR_SPLIT_OUTPUTW_OVER:
-        task.output.crop.w -= 8;
-        break;
-      case IPU_CHECK_ERR_SPLIT_OUTPUTH_OVER:
-        task.output.crop.h -= 8;
-        break;
-      default:
-        CLog::Log(LOGWARNING, "fbout: unhandled IPU check error: %d\n", ret);
-        return false;
-    }
-  }
-
-  if ( (ret = ioctl(m_ipuHandle, IPU_QUEUE_TASK, &task)) < 0 )
-  {
-    CLog::Log(LOGERROR, "IPU task failed: %s\n", strerror(errno));
-    return false;
-  }
-
-  return true;
-}
-#endif
-
 bool CDVDVideoCodecIMXIPUBuffers::ShowPage(int page)
 {
   return m_fb.ShowPage(page);
@@ -1923,6 +1801,8 @@ bool CDVDVideoCodecIMXIPUBuffers::Blit(CDVDVideoCodecIMXIPUBuffer *target,
     return false;
   }
 
+  target->SetPts(source->GetPts());
+  target->SetDts(source->GetDts());
   target->GrabFrameBuffer();
 
   return true;
