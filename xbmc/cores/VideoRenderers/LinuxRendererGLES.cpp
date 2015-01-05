@@ -1704,22 +1704,9 @@ void CLinuxRendererGLES::RenderIMXMAPTexture(int index, int field)
 {
 #if defined(HAS_IMXVPU)
 #if 1 // Test mode for fb1 output
+  /*
   CDVDVideoCodecIMXBuffer *buffer = m_buffers[index].IMXBuffer;
   if (buffer == NULL || !buffer->IsValid()) return;
-
-  // If player window is not fullscreen, cut a hole into the backbuffer
-  /*
-  if (!g_graphicsContext.IsFullScreenVideo())
-  {
-    CRect old = g_graphicsContext.GetScissors();
-    g_graphicsContext.BeginPaint();
-    g_graphicsContext.SetScissors(m_destRect);
-    glClearColor(0, 0, 0, 0);
-    glClear(GL_COLOR_BUFFER_BIT);
-    g_graphicsContext.SetScissors(old);
-    g_graphicsContext.EndPaint();
-  }
-  */
 
   if ((m_destRect.x1>0)
    || (m_destRect.y1>0)
@@ -1731,6 +1718,7 @@ void CLinuxRendererGLES::RenderIMXMAPTexture(int index, int field)
   }
   else
     buffer->Blit();
+  */
 #else
 #ifdef DEBUG_VERBOSE
   unsigned int time = XbmcThreads::SystemClockMillis();

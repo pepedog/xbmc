@@ -39,13 +39,6 @@
 // interlaced content is processed faster with NV12 as output format.
 #define IMX_INPUT_FORMAT_I420
 
-// The deinterlacer output and render format. Only one format must be active
-// at a time
-#define IMX_OUTPUT_FORMAT_NV12
-//#define IMX_OUTPUT_FORMAT_I420
-//#define IMX_OUTPUT_FORMAT_RGB565
-//#define IMX_OUTPUT_FORMAT_RGB32
-
 // This enables logging of times for Decode, Render->Render,
 // Deinterlace. It helps to profile several stages of
 // processing with respect to changed kernels or other configurations.
@@ -74,12 +67,12 @@ public:
   {}
 
   //virtual mem info
-  int nVirtNum;
-  void** virtMem;
+  int         nVirtNum;
+  void      **virtMem;
 
   //phy mem info
-  int nPhyNum;
-  VpuMemDesc* phyMem;
+  int         nPhyNum;
+  VpuMemDesc *phyMem;
 };
 
 class CDVDVideoCodecIMXIPUBuffers;
@@ -104,22 +97,14 @@ public:
   void          SetDts(double dts);
   double        GetDts(void) const { return m_dts; }
 
-  VpuFieldType  GetFieldType() const { return fieldType; }
+  // Shows the buffer. Only IPU buffers can be shown.
+  virtual bool  Show() {}
 
-  // Blits the buffer via IPU directly to the framebuffer
-  bool Blit(const CRectInt *crop = NULL);
-
-  // Shows the buffer by flipping the fb page
-  bool Show();
-
-  uint32_t                     iWidth;
-  uint32_t                     iHeight;
-  uint8_t                     *pPhysAddr;
-  uint8_t                     *pVirtAddr;
-  uint8_t                      iFormat;
-  VpuFieldType                 fieldType;
-  CDVDVideoCodecIMXIPUBuffers *ipu;
-
+  uint32_t      iWidth;
+  uint32_t      iHeight;
+  int           pPhysAddr;
+  uint8_t      *pVirtAddr;
+  int           iFormat;
 
 protected:
 #ifdef TRACE_FRAMES
@@ -152,16 +137,18 @@ public:
                                     CDVDVideoCodecIMXVPUBuffer *previous);
   VpuDecRetCode               ReleaseFramebuffer(VpuDecHandle *handle);
   CDVDVideoCodecIMXVPUBuffer *GetPreviousBuffer() const;
+  VpuFieldType                GetFieldType() const { return m_fieldType; }
 
 private:
   // private because we are reference counted
   virtual                    ~CDVDVideoCodecIMXVPUBuffer();
 
 private:
+  VpuFieldType                m_fieldType;
   VpuFrameBuffer             *m_frameBuffer;
   bool                        m_rendered;
   CDVDVideoCodecIMXVPUBuffer *m_previousBuffer; // Holds a the reference counted
-                                             // previous buffer
+                                                // previous buffer
 };
 
 
@@ -183,23 +170,24 @@ public:
 
   // Returns whether the buffer is ready to be used
   bool                     Rendered() const { return m_bFree; }
-  bool                     Process(int fd, CDVDVideoCodecIMXVPUBuffer *buffer,
-                                   int fieldFmt, bool lowMotion);
+  void                     GrabFrameBuffer() { m_bFree = false; }
   void                     ReleaseFrameBuffer();
 
-  bool                     Allocate(int fd, int width, int height, int nAlign);
-  bool                     Free(int fd);
+  void                     Set(CDVDVideoCodecIMXIPUBuffers *ipu,
+                               int physAddr, uint8_t *virtAddr,
+                               int w, int h, int format, int page);
+  bool                     Show();
 
 private:
   virtual                  ~CDVDVideoCodecIMXIPUBuffer();
 
+public:
+  CRectInt                     cropRect;
+  int                          iPage;
+
 private:
-  bool                     m_bFree;
-  int                      m_pPhyAddr;
-  uint8_t                 *m_pVirtAddr;
-  uint32_t                 m_iWidth;
-  uint32_t                 m_iHeight;
-  int                      m_nSize;
+  CDVDVideoCodecIMXIPUBuffers *m_pIPU;
+  bool                         m_bFree;
 };
 
 
@@ -209,48 +197,40 @@ public:
   RenderFB1();
   ~RenderFB1();
 
-  bool Init();
-  bool Close();
+  bool     Init(int pages = 2);
+  bool     Close();
 
-  bool Blank();
-  bool Unblank();
+  bool     Blank();
+  bool     Unblank();
 
-  bool IsValid() const         { return m_fbPages > 0; }
-  int  Width() const           { return m_fbWidth; }
-  int  Height() const          { return m_fbHeight; }
-  int  Format() const          { return m_fbVar.nonstd; }
-  bool NeedSwap() const        { return m_fbNeedSwap; }
-  int  GetPagePhysAddr() const { return m_fbPhysAddr + m_fbCurrentPage*m_fbPageSize; }
+  bool     IsValid() const         { return m_fbPages > 0; }
+  int      Width() const           { return m_fbWidth; }
+  int      Height() const          { return m_fbHeight; }
+  int      Format() const          { return m_fbVar.nonstd; }
+  int      PhysAddr(int p) const   { return m_fbPhysAddr + p*m_fbPageSize; }
+  uint8_t *VirtAddr(int p) const   { return m_fbVirtAddr + p*m_fbPageSize; }
 
-  // Sets the current viewport target of rendering. If the viewport changes
-  // since the last call the pages are cleared
-  void SetViewport(const CRectInt &r);
+  // Shows a page vsynced
+  bool     ShowPage(int page);
 
-  // Finished a page update
-  void Finish()                { m_fbNeedSwap = m_fbPages > 1; }
-  // Swaps the physical pages vsynced
-  bool Swap();
-  // Clears the pages memory with 'black'
-  void Clear();
+  // Clears the pages or a single page with 'black'
+  void     Clear(int page = -1);
 
 private:
   int                          m_fbHandle;
   int                          m_fbPages;
-  int                          m_fbCurrentPage;
   int                          m_fbWidth;
   int                          m_fbHeight;
   int                          m_fbPageSize;
   int                          m_fbPhysSize;
   int                          m_fbPhysAddr;
-  char                        *m_fbVirtAddr;
+  uint8_t                     *m_fbVirtAddr;
   struct fb_var_screeninfo     m_fbVar;
-  bool                         m_fbNeedSwap;
-  CRectInt                     m_lastCrop;
 };
 
 
 // Collection class that manages a pool of IPU buffers that are used for
-// deinterlacing. In future they can also serve rotation or color conversion
+// rendering. In future they can also serve rotation or color conversion
 // buffers.
 class CDVDVideoCodecIMXIPUBuffers
 {
@@ -269,11 +249,13 @@ public:
   bool Close();
 
   CDVDVideoCodecIMXIPUBuffer *
-  Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer, bool lowMotion);
+  Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer);
 
-  // Framebuffer interface
-  bool BlitFB(CDVDVideoCodecIMXBuffer *buf, const CRectInt *crop = NULL);
-  bool SwapFB();
+  bool ShowPage(int page);
+
+private:
+  bool Blit(CDVDVideoCodecIMXIPUBuffer *target,
+            CDVDVideoCodecIMXVPUBuffer *source);
 
 private:
   static RenderFB1             m_fb;
@@ -307,8 +289,7 @@ private:
   CDVDVideoCodecIMXVPUBuffer *GetNextInput();
   void WaitForFreeOutput();
   bool PushOutput(CDVDVideoCodecIMXBuffer *v);
-  CDVDVideoCodecIMXBuffer *ProcessFrame(CDVDVideoCodecIMXVPUBuffer *input,
-                                        bool lowMotion);
+  CDVDVideoCodecIMXBuffer *ProcessFrame(CDVDVideoCodecIMXVPUBuffer *input);
 
   virtual void OnStartup();
   virtual void OnExit();
