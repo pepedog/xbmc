@@ -989,6 +989,7 @@ int CDVDVideoCodecIMX::Decode(BYTE *pData, int iSize, double dts, double pts)
   } //(pData && iSize)
 
   // Reply to flush call
+  /*
   if (!retStatus)
   {
     m_currentBuffer = m_mixer.Process(NULL);
@@ -997,6 +998,7 @@ int CDVDVideoCodecIMX::Decode(BYTE *pData, int iSize, double dts, double pts)
       retStatus |= VC_PICTURE;
     }
   }
+  */
 
   if (retStatus == 0)
   {
