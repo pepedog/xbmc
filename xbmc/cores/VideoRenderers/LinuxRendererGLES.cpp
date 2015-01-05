@@ -653,8 +653,8 @@ void CLinuxRendererGLES::FlipPage(int source)
 #ifdef HAS_IMXVPU
 
   CDVDVideoCodecIMXBuffer *buffer = m_buffers[m_iYV12RenderBuffer].IMXBuffer;
-  if (buffer != NULL && buffer->IsValid() && buffer->ipu != NULL)
-    buffer->ipu->SwapFB();
+  if (buffer != NULL && buffer->IsValid())
+    buffer->Show();
 #endif
   return;
 }
