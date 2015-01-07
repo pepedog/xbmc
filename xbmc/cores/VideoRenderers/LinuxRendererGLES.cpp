@@ -611,18 +611,6 @@ void CLinuxRendererGLES::RenderUpdateVideo(bool clear, DWORD flags, DWORD alpha)
     if (m_RenderUpdateCallBackFn)
       (*m_RenderUpdateCallBackFn)(m_RenderUpdateCallBackCtx, m_sourceRect, m_destRect);
 
-    CRect old = g_graphicsContext.GetScissors();
-
-    g_graphicsContext.BeginPaint();
-    g_graphicsContext.SetScissors(m_destRect);
-
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glClearColor(0, 0, 0, 0);
-    glClear(GL_COLOR_BUFFER_BIT);
-
-    g_graphicsContext.SetScissors(old);
-    g_graphicsContext.EndPaint();
     return;
   }
   else if (m_renderMethod & RENDER_IMXMAP)
@@ -650,12 +638,6 @@ void CLinuxRendererGLES::FlipPage(int source)
     m_iYV12RenderBuffer = NextYV12Texture();
 
   m_buffers[m_iYV12RenderBuffer].flipindex = ++m_flipindex;
-#ifdef HAS_IMXVPU
-
-  CDVDVideoCodecIMXBuffer *buffer = m_buffers[m_iYV12RenderBuffer].IMXBuffer;
-  if (buffer != NULL && buffer->IsValid())
-    buffer->Show();
-#endif
   return;
 }
 
@@ -1704,10 +1686,10 @@ void CLinuxRendererGLES::RenderIMXMAPTexture(int index, int field)
 {
 #if defined(HAS_IMXVPU)
 #if 1 // Test mode for fb1 output
-  /*
   CDVDVideoCodecIMXBuffer *buffer = m_buffers[index].IMXBuffer;
   if (buffer == NULL || !buffer->IsValid()) return;
 
+  /*
   if ((m_destRect.x1>0)
    || (m_destRect.y1>0)
    || (m_destRect.x2<g_graphicsContext.GetWidth())
@@ -1719,6 +1701,7 @@ void CLinuxRendererGLES::RenderIMXMAPTexture(int index, int field)
   else
     buffer->Blit();
   */
+  buffer->Show();
 #else
 #ifdef DEBUG_VERBOSE
   unsigned int time = XbmcThreads::SystemClockMillis();
@@ -2952,18 +2935,15 @@ bool CLinuxRendererGLES::Supports(EINTERLACEMETHOD method)
   if(m_renderMethod & RENDER_CVREF)
     return false;
 
-  if(m_renderMethod & RENDER_IMXMAP)
-    return false;
-
   if(method == VS_INTERLACEMETHOD_AUTO)
     return true;
 
   if(m_renderMethod & RENDER_IMXMAP)
-  { /*
+  {
     if(method == VS_INTERLACEMETHOD_DEINTERLACE
     || method == VS_INTERLACEMETHOD_DEINTERLACE_HALF)
       return true;
-    else*/
+    else
       return false;
   }
 
@@ -2987,6 +2967,9 @@ bool CLinuxRendererGLES::Supports(ESCALINGMETHOD method)
     Features::iterator itr = std::find(m_scalingMethods.begin(),m_scalingMethods.end(), method);
     return itr != m_scalingMethods.end();
   }
+
+  if(m_renderMethod & RENDER_IMXMAP)
+    return false;
 
   if(method == VS_SCALINGMETHOD_NEAREST
   || method == VS_SCALINGMETHOD_LINEAR)
@@ -3016,7 +2999,7 @@ EINTERLACEMETHOD CLinuxRendererGLES::AutoInterlaceMethod()
     return VS_INTERLACEMETHOD_NONE;
 
   if(m_renderMethod & RENDER_IMXMAP)
-    return VS_INTERLACEMETHOD_NONE;
+    return VS_INTERLACEMETHOD_DEINTERLACE_HALF;
 
 #if defined(__i386__) || defined(__x86_64__)
   return VS_INTERLACEMETHOD_DEINTERLACE_HALF;
@@ -3033,7 +3016,8 @@ unsigned int CLinuxRendererGLES::GetOptimalBufferSize()
      m_format == RENDER_FMT_MEDIACODEC)
     return 2;
   else if(m_format == RENDER_FMT_IMXMAP)
-    return 3;
+    // Let the codec control the buffer size
+    return GetMaxBufferSize();
   else
     return 3;
 }

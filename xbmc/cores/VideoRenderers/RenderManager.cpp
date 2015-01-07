@@ -381,7 +381,10 @@ void CXBMCRenderManager::FrameFinish()
   SPresent& m = m_Queue[m_presentsource];
 
   if(g_graphicsContext.IsFullScreenVideo())
+  {
+    CSingleExit lock(g_graphicsContext);
     WaitPresentTime(m.timestamp);
+  }
 
   m_clock_framefinish = GetPresentTime();
 
@@ -804,6 +807,19 @@ bool CXBMCRenderManager::IsGuiLayer()
       return false;
 
     if (m_pRenderer->IsGuiLayer() || m_renderedOverlay || m_overlays.HasOverlay(m_presentsource))
+      return true;
+  }
+  return false;
+}
+
+bool CXBMCRenderManager::IsVideoLayer()
+{
+  { CSingleLock lock(m_presentlock);
+
+    if (!m_pRenderer)
+      return false;
+
+    if (!m_pRenderer->IsGuiLayer())
       return true;
   }
   return false;

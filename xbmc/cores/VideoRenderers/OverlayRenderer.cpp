@@ -315,7 +315,11 @@ bool CRenderer::HasOverlay(int idx)
   SElementV& list = m_buffers[idx];
   for(SElementV::iterator it = list.begin(); it != list.end(); ++it)
   {
-    hasOverlay = true;
+    if (it->overlay || it->overlay_dvd)
+    {
+      hasOverlay = true;
+      break;
+    }
   }
   return hasOverlay;
 }

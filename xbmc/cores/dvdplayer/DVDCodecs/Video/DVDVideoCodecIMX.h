@@ -108,6 +108,7 @@ public:
   int           pPhysAddr;
   uint8_t      *pVirtAddr;
   int           iFormat;
+  bool          bDoubled;
 
 protected:
 #ifdef TRACE_FRAMES
@@ -140,12 +141,13 @@ public:
   void                        Queue(VpuDecOutFrameInfo *frameInfo,
                                     CDVDVideoCodecIMXVPUBuffer *previous);
   VpuDecRetCode               ReleaseFramebuffer(VpuDecHandle *handle);
-  CDVDVideoCodecIMXVPUBuffer *GetPreviousBuffer() const;
+  CDVDVideoCodecIMXVPUBuffer *GetPreviousBuffer() const { return m_previousBuffer; }
   VpuFieldType                GetFieldType() const { return m_fieldType; }
+  bool                        IsInterlaced() const { return m_fieldType != VPU_FIELD_NONE; }
 
 private:
   // private because we are reference counted
-  virtual                    ~CDVDVideoCodecIMXVPUBuffer();
+  virtual                     ~CDVDVideoCodecIMXVPUBuffer();
 
 private:
   VpuFieldType                m_fieldType;
@@ -162,57 +164,62 @@ class CDVDVideoCodecIMXIPUBuffer : public CDVDVideoCodecIMXBuffer
 {
 public:
 #ifdef TRACE_FRAMES
-  CDVDVideoCodecIMXIPUBuffer(int idx);
+  CDVDVideoCodecIMXIPUBuffer(CDVDVideoCodecIMXIPUBuffers *p, int idx);
 #else
-  CDVDVideoCodecIMXIPUBuffer();
+  CDVDVideoCodecIMXIPUBuffer(CDVDVideoCodecIMXIPUBuffers *p);
 #endif
 
   // reference counting
-  virtual void             Lock();
-  virtual long             Release();
-  virtual bool             IsValid();
+  virtual void Lock();
+  virtual long Release();
+  virtual bool IsValid();
 
   // Returns whether the buffer is ready to be used
-  bool                     Rendered() const { return m_bFree; }
-  void                     GrabFrameBuffer() { m_bFree = false; }
-  void                     ReleaseFrameBuffer();
+  bool         Rendered() const { return m_bFree; }
+  void         GrabFrameBuffer() { m_bFree = false; }
+  void         ReleaseFrameBuffer();
 
-  void                     Set(CDVDVideoCodecIMXIPUBuffers *ipu,
-                               int physAddr, uint8_t *virtAddr,
-                               int w, int h, int format, int page);
-  bool                     Show();
+  bool         Show();
 
 private:
-  virtual                  ~CDVDVideoCodecIMXIPUBuffer();
+  virtual      ~CDVDVideoCodecIMXIPUBuffer();
 
 public:
-  CRectInt                     cropRect;
-  int                          iPage;
+  int          iPage;
 
 private:
-  CDVDVideoCodecIMXIPUBuffers *m_pIPU;
-  bool                         m_bFree;
+  CDVDVideoCodecIMXIPUBuffers* m_parent;
+  bool         m_bFree;
 };
 
 
-class RenderFB1
+// iMX context class that handles all iMX hardware
+// related stuff
+class CIMXContext
 {
 public:
-  RenderFB1();
-  ~RenderFB1();
+  CIMXContext();
+  ~CIMXContext();
 
-  bool     Init(int pages = 2);
+  bool     Configure(int pages = 2);
   bool     Close();
 
   bool     Blank();
   bool     Unblank();
 
   bool     IsValid() const         { return m_fbPages > 0; }
-  int      Width() const           { return m_fbWidth; }
-  int      Height() const          { return m_fbHeight; }
-  int      Format() const          { return m_fbVar.nonstd; }
-  int      PhysAddr(int p) const   { return m_fbPhysAddr + p*m_fbPageSize; }
-  uint8_t *VirtAddr(int p) const   { return m_fbVirtAddr + p*m_fbPageSize; }
+
+  // Populates a CDVDVideoCodecIMXBuffer with attributes of a page
+  bool     GetPageInfo(CDVDVideoCodecIMXBuffer *info, int page);
+
+  // Blitter configuration
+  void     SetDeInterlacing(bool flag);
+  void     SetDoubleRate(bool flag);
+  bool     DoubleRate() const;
+  void     SetInterpolatedFrame(bool flag);
+
+  // Blits a buffer to a particular page
+  bool     Blit(int targetPage, CDVDVideoCodecIMXVPUBuffer *source);
 
   // Shows a page vsynced
   bool     ShowPage(int page);
@@ -230,7 +237,14 @@ private:
   int                          m_fbPhysAddr;
   uint8_t                     *m_fbVirtAddr;
   struct fb_var_screeninfo     m_fbVar;
+  int                          m_ipuHandle;
+  int                          m_currentFieldFmt;
+  bool                         m_deInterlacing;
+  CRectInt                    *m_pageCrops;
 };
+
+
+extern CIMXContext g_IMXContext;
 
 
 // Collection class that manages a pool of IPU buffers that are used for
@@ -242,32 +256,25 @@ public:
   CDVDVideoCodecIMXIPUBuffers();
   ~CDVDVideoCodecIMXIPUBuffers();
 
-  bool Init(int width, int height, int numBuffers, int nAlign);
+  bool Init(int numBuffers);
   // Sets the mode to be used if deinterlacing is set to AUTO
-  void SetAutoMode(bool mode) { m_autoMode = mode; }
-  bool AutoMode() const { return m_autoMode; }
-  void SetDoubleRate(bool flag);
-  bool DoubleRate() const;
-  void SetInterpolatedFrame(bool flag);
   bool Reset();
   bool Close();
 
   CDVDVideoCodecIMXIPUBuffer *
   Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer);
 
-  bool ShowPage(int page);
+  bool Show(CDVDVideoCodecIMXIPUBuffer*);
 
 private:
   bool Blit(CDVDVideoCodecIMXIPUBuffer *target,
             CDVDVideoCodecIMXVPUBuffer *source);
 
 private:
-  static RenderFB1             m_fb;
-  int                          m_ipuHandle;
+  CDVDVideoCodecIMXIPUBuffer  *m_displayBuffer;
   bool                         m_autoMode;
   int                          m_bufferNum;
   CDVDVideoCodecIMXIPUBuffer **m_buffers;
-  int                          m_currentFieldFmt;
 };
 
 
@@ -278,22 +285,24 @@ public:
   virtual ~CDVDVideoMixerIMX();
 
   void SetCapacity(int intput, int output);
-  bool DoubleRate() const { return m_proc->DoubleRate(); }
+  bool OutputFull();
 
+  void SetDeInterlacingAutoMode(bool f) { m_deinterlacingAutoMode = f; }
   void Start();
   void Reset();
   void Dispose();
   bool IsActive();
 
   // This function blocks until an input slot is available.
-  // It returns if an output is available.
+  // It returns and output frame if available or NULL.
   CDVDVideoCodecIMXBuffer *Process(CDVDVideoCodecIMXVPUBuffer *input);
 
 private:
   CDVDVideoCodecIMXVPUBuffer *GetNextInput();
+  bool HasFreeInput();
   void WaitForFreeOutput();
   bool PushOutput(CDVDVideoCodecIMXBuffer *v);
-  CDVDVideoCodecIMXBuffer *ProcessFrame(CDVDVideoCodecIMXVPUBuffer *input);
+  CDVDVideoCodecIMXIPUBuffer *ProcessFrame(CDVDVideoCodecIMXVPUBuffer *input);
 
   virtual void OnStartup();
   virtual void OnExit();
@@ -317,7 +326,7 @@ private:
   XbmcThreads::ConditionVariable  m_outputNotFull;
 
   mutable CCriticalSection        m_monitor;
-  CDVDVideoCodecIMXBuffer        *m_lastFrame;    // Last input frame
+  bool                            m_deinterlacingAutoMode;
 };
 
 
@@ -357,7 +366,7 @@ protected:
   bool                         m_dropState;         // Current drop state
   int                          m_vpuFrameBufferNum; // Total number of allocated frame buffers
   VpuFrameBuffer              *m_vpuFrameBuffers;   // Table of VPU frame buffers description
-  CDVDVideoCodecIMXIPUBuffers  m_deinterlacer;      // Pool of buffers used for deinterlacing
+  CDVDVideoCodecIMXIPUBuffers  m_ipuFrameBuffers;   // Pool of buffers used for rendering
   CDVDVideoMixerIMX            m_mixer;
   CDVDVideoCodecIMXVPUBuffer **m_outputBuffers;     // Table of VPU output buffers
   CDVDVideoCodecIMXVPUBuffer  *m_lastBuffer;        // Keep track of previous VPU output buffer (needed by deinterlacing motion engin)
@@ -370,6 +379,7 @@ protected:
   bool                         m_convert_bitstream; // State whether bitstream conversion is required
   int                          m_bytesToBeConsumed; // Remaining bytes in VPU
   double                       m_previousPts;       // Enable to keep pts when needed
+  double                       m_durationPts;       // Current duration of two subsequent frames
   bool                         m_frameReported;     // State whether the frame consumed event will be reported by libfslvpu
 #ifdef DUMP_STREAM
   FILE                        *m_dump;
