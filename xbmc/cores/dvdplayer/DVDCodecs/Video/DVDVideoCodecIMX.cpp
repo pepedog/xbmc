@@ -899,13 +899,8 @@ int CDVDVideoCodecIMX::Decode(BYTE *pData, int iSize, double dts, double pts)
           lastD = current;
 #endif
 
-          if (m_dropState)
-          {
-            buffer->Release();
-            m_currentBuffer = m_mixer.Process(NULL);
-          }
-          else
-            m_currentBuffer = m_mixer.Process(buffer);
+          buffer->SetDropped(m_dropState);
+          m_currentBuffer = m_mixer.Process(buffer);
 
           if (m_currentBuffer)
             retStatus |= VC_PICTURE;
@@ -1084,7 +1079,7 @@ bool CDVDVideoCodecIMX::GetPicture(DVDVideoPicture* pDvdVideoPicture)
   m_frameCounter++;
 
   pDvdVideoPicture->iFlags = DVP_FLAG_ALLOCATED;
-  if (m_dropState)
+  if (m_currentBuffer->Dropped())
     pDvdVideoPicture->iFlags |= DVP_FLAG_DROPPED;
   else
     pDvdVideoPicture->iFlags &= ~DVP_FLAG_DROPPED;
@@ -1805,6 +1800,7 @@ bool CDVDVideoCodecIMXIPUBuffers::Blit(CDVDVideoCodecIMXIPUBuffer *target,
 
   target->SetPts(source->GetPts());
   target->SetDts(source->GetDts());
+  target->SetDropped(source->Dropped());
   target->GrabFrameBuffer();
 
   return true;
@@ -2019,6 +2015,10 @@ bool CDVDVideoMixerIMX::PushOutput(CDVDVideoCodecIMXBuffer *v) {
 
 CDVDVideoCodecIMXBuffer *CDVDVideoMixerIMX::ProcessFrame(CDVDVideoCodecIMXVPUBuffer *inputBuffer)
 {
+  // Dropped buffers are forwarded directly
+  if (inputBuffer->Dropped())
+    return inputBuffer;
+
   CDVDVideoCodecIMXBuffer *outputBuffer;
 
 #ifdef IMX_PROFILE_BUFFERS

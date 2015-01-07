@@ -97,6 +97,9 @@ public:
   void          SetDts(double dts);
   double        GetDts(void) const { return m_dts; }
 
+  void          SetDropped(bool d) { m_drop = d; }
+  bool          Dropped() const { return m_drop; }
+
   // Shows the buffer. Only IPU buffers can be shown.
   virtual bool  Show() {}
 
@@ -115,6 +118,7 @@ protected:
 private:
   double        m_pts;
   double        m_dts;
+  bool          m_drop;
 };
 
 
