@@ -1633,6 +1633,8 @@ bool CIMXContext::Blit(int page, CIMXBuffer *source_p, CIMXBuffer *source, bool 
   CRect srcRect, destRect;
   g_renderManager.GetVideoRect(srcRect, destRect);
 
+  // TODO: Handle negative destination coordinates which
+  //       are not handled by the IPU
   cropRect.x1 = Align((int)destRect.x1,8);
   cropRect.y1 = Align((int)destRect.y1,8);
   cropRect.x2 = Align2((int)destRect.x2,8);
