@@ -75,21 +75,40 @@ public:
   VpuMemDesc *phyMem;
 };
 
+
+// Generell description of a buffer used by
+// the IMX context, e.g. for blitting
+class CIMXBuffer {
+public:
+  CIMXBuffer() : m_iRefs(0) {}
+
+  // Shared pointer interface
+  virtual void Lock() = 0;
+  virtual long Release() = 0;
+  virtual bool IsValid() = 0;
+
+public:
+  uint32_t     iWidth;
+  uint32_t     iHeight;
+  int          pPhysAddr;
+  uint8_t     *pVirtAddr;
+  int          iFormat;
+
+protected:
+  long         m_iRefs;
+};
+
+
 class CDVDVideoCodecIMXIPUBuffers;
 
 // Base class of IMXVPU and IMXIPU buffer
-class CDVDVideoCodecIMXBuffer {
+class CDVDVideoCodecIMXBuffer : public CIMXBuffer {
 public:
 #ifdef TRACE_FRAMES
   CDVDVideoCodecIMXBuffer(int idx);
 #else
   CDVDVideoCodecIMXBuffer();
 #endif
-
-  // reference counting
-  virtual void  Lock() = 0;
-  virtual long  Release() = 0;
-  virtual bool  IsValid() = 0;
 
   void          SetPts(double pts);
   double        GetPts(void) const { return m_pts; }
@@ -103,18 +122,12 @@ public:
   // Shows the buffer. Only IPU buffers can be shown.
   virtual bool  Show() {}
 
-  uint32_t      iWidth;
-  uint32_t      iHeight;
-  int           pPhysAddr;
-  uint8_t      *pVirtAddr;
-  int           iFormat;
   bool          bDoubled;
 
 protected:
 #ifdef TRACE_FRAMES
   int           m_idx;
 #endif
-  long          m_refs;
 
 private:
   double        m_pts;
@@ -210,8 +223,11 @@ public:
 
   bool     IsValid() const         { return m_fbPages > 0; }
 
-  // Populates a CDVDVideoCodecIMXBuffer with attributes of a page
-  bool     GetPageInfo(CDVDVideoCodecIMXBuffer *info, int page);
+  // Returns the number of available pages
+  int      PageCount() const       { return m_fbPages; }
+
+  // Populates a CIMXBuffer with attributes of a page
+  bool     GetPageInfo(CIMXBuffer *info, int page);
 
   // Blitter configuration
   void     SetDeInterlacing(bool flag);
@@ -219,8 +235,12 @@ public:
   bool     DoubleRate() const;
   void     SetInterpolatedFrame(bool flag);
 
-  // Blits a buffer to a particular page
-  bool     Blit(int targetPage, CDVDVideoCodecIMXVPUBuffer *source);
+  // Blits a buffer to a particular page.
+  // source_p (previous buffer) is required for de-interlacing
+  // modes LOW_MOTION and MED_MOTION.
+  bool     Blit(int targetPage, CIMXBuffer *source_p,
+                CIMXBuffer *source,
+                bool topBottomFields = true);
 
   // Shows a page vsynced
   bool     ShowPage(int page);
