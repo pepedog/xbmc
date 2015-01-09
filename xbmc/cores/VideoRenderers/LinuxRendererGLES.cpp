@@ -2940,8 +2940,8 @@ bool CLinuxRendererGLES::Supports(EINTERLACEMETHOD method)
 
   if(m_renderMethod & RENDER_IMXMAP)
   {
-    if(method == VS_INTERLACEMETHOD_DEINTERLACE
-    || method == VS_INTERLACEMETHOD_DEINTERLACE_HALF)
+    if(method == VS_INTERLACEMETHOD_IMX_FASTMOTION
+    || method == VS_INTERLACEMETHOD_IMX_FASTMOTION_DOUBLE)
       return true;
     else
       return false;
@@ -2999,7 +2999,7 @@ EINTERLACEMETHOD CLinuxRendererGLES::AutoInterlaceMethod()
     return VS_INTERLACEMETHOD_NONE;
 
   if(m_renderMethod & RENDER_IMXMAP)
-    return VS_INTERLACEMETHOD_DEINTERLACE_HALF;
+    return VS_INTERLACEMETHOD_IMX_FASTMOTION;
 
 #if defined(__i386__) || defined(__x86_64__)
   return VS_INTERLACEMETHOD_DEINTERLACE_HALF;

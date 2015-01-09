@@ -2006,7 +2006,7 @@ void CDVDVideoMixerIMX::Process()
         double pts;
 
         // Enable double rate only if explicitely selected
-        if (deinterlacing && (mInt == VS_INTERLACEMETHOD_DEINTERLACE))
+        if (deinterlacing && (mInt == VS_INTERLACEMETHOD_IMX_FASTMOTION_DOUBLE))
         {
           if (inputBuffer->GetPreviousBuffer())
           {
