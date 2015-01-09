@@ -1363,6 +1363,7 @@ CIMXContext::CIMXContext()
   , m_fbPhysAddr(0)
   , m_fbVirtAddr(NULL)
   , m_ipuHandle(0)
+  , m_vsync(true)
   , m_pageCrops(NULL)
 {
 }
@@ -1546,6 +1547,11 @@ bool CIMXContext::Unblank()
   return ioctl(m_fbHandle, FBIOBLANK, FB_BLANK_UNBLANK) == 0;
 }
 
+bool CIMXContext::SetVSync(bool enable)
+{
+  m_vsync = enable;
+}
+
 inline void CIMXContext::SetDoubleRate(bool flag)
 {
   if (flag)
@@ -1693,8 +1699,11 @@ bool CIMXContext::ShowPage(int page)
     CLog::Log(LOGWARNING, "Panning failed: %s\n", strerror(errno));
 
   // Wait for sync
-  if (ioctl(m_fbHandle, FBIO_WAITFORVSYNC, 0) < 0)
-    CLog::Log(LOGWARNING, "Vsync failed: %s\n", strerror(errno));
+  if (m_vsync)
+  {
+    if (ioctl(m_fbHandle, FBIO_WAITFORVSYNC, 0) < 0)
+      CLog::Log(LOGWARNING, "Vsync failed: %s\n", strerror(errno));
+  }
 
   return true;
 }

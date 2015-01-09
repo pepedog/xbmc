@@ -31,6 +31,10 @@
 #include "settings/DisplaySettings.h"
 #include "guilib/DispResource.h"
 #include "threads/SingleLock.h"
+#ifdef HAS_IMXVPU
+// This has to go into another header file
+#include "cores/dvdplayer/DVDCodecs/Video/DVDVideoCodecIMX.h"
+#endif
 #include "utils/log.h"
 #include "EGLWrapper.h"
 #include "EGLQuirks.h"
@@ -450,6 +454,9 @@ void CWinSystemEGL::SetVSyncImpl(bool enable)
     m_iVSyncMode = 0;
     CLog::Log(LOGERROR, "%s,Could not set egl vsync", __FUNCTION__);
   }
+#ifdef HAS_IMXVPU
+  g_IMXContext.SetVSync(enable);
+#endif
 }
 
 void CWinSystemEGL::ShowOSMouse(bool show)

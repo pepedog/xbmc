@@ -206,6 +206,7 @@ public:
 
   bool     Blank();
   bool     Unblank();
+  bool     SetVSync(bool enable);
 
   bool     IsValid() const         { return m_fbPages > 0; }
 
@@ -239,6 +240,7 @@ private:
   struct fb_var_screeninfo     m_fbVar;
   int                          m_ipuHandle;
   int                          m_currentFieldFmt;
+  bool                         m_vsync;
   bool                         m_deInterlacing;
   CRectInt                    *m_pageCrops;
 };
