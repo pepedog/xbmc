@@ -1463,8 +1463,9 @@ bool CIMXContext::Configure(int pages)
   }
 
   // Final setup
+  m_fbLineLength = fb_fix.line_length;
   m_fbPhysSize = fb_fix.smem_len;
-  m_fbPageSize = fb_fix.line_length * m_fbVar.yres_virtual / m_fbPages;
+  m_fbPageSize = m_fbLineLength * m_fbVar.yres_virtual / m_fbPages;
   m_fbPhysAddr = fb_fix.smem_start;
   m_fbVirtAddr = (uint8_t*)mmap(0, m_fbPhysSize, PROT_READ | PROT_WRITE, MAP_SHARED, m_fbHandle, 0);
 
@@ -1681,6 +1682,13 @@ bool CIMXContext::Blit(int page, CIMXBuffer *source_p, CIMXBuffer *source, bool 
   {
     CLog::Log(LOGERROR, "IPU task failed: %s\n", strerror(errno));
     return false;
+  }
+
+  // Duplicate 2nd scandline if double rate is active
+  if (task.input.deinterlace.field_fmt & IPU_DEINTERLACE_RATE_EN)
+  {
+    uint8_t *pageAddr = m_fbVirtAddr + page*m_fbPageSize;
+    memcpy(pageAddr, pageAddr+m_fbLineLength, m_fbLineLength);
   }
 
   return true;  

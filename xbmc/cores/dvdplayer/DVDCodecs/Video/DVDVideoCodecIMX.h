@@ -253,6 +253,7 @@ private:
   int                          m_fbPages;
   int                          m_fbWidth;
   int                          m_fbHeight;
+  int                          m_fbLineLength;
   int                          m_fbPageSize;
   int                          m_fbPhysSize;
   int                          m_fbPhysAddr;
