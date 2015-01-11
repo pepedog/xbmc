@@ -111,10 +111,10 @@ public:
 #endif
 
   void          SetPts(double pts);
-  double        GetPts(void) const { return m_pts; }
+  double        GetPts() const { return m_pts; }
 
   void          SetDts(double dts);
-  double        GetDts(void) const { return m_dts; }
+  double        GetDts() const { return m_dts; }
 
   void          SetDropped(bool d) { m_drop = d; }
   bool          Dropped() const { return m_drop; }
@@ -193,6 +193,9 @@ public:
   void         ReleaseFrameBuffer();
 
   bool         Show();
+
+  // Detaches the buffer from its parent
+  void         Detach();
 
 private:
   virtual      ~CDVDVideoCodecIMXIPUBuffer();
@@ -361,14 +364,17 @@ public:
 
   // Methods from CDVDVideoCodec which require overrides
   virtual bool Open(CDVDStreamInfo &hints, CDVDCodecOptions &options);
-  virtual void Dispose(void);
+  virtual void Dispose();
   virtual int  Decode(BYTE *pData, int iSize, double dts, double pts);
-  virtual void Reset(void);
+  virtual void Reset();
   virtual bool ClearPicture(DVDVideoPicture *pDvdVideoPicture);
   virtual bool GetPicture(DVDVideoPicture *pDvdVideoPicture);
   virtual void SetDropState(bool bDrop);
-  virtual const char* GetName(void) { return (const char*)m_pFormatName; }
+  virtual const char* GetName() { return (const char*)m_pFormatName; }
   virtual unsigned GetAllowedReferences();
+
+  static void Enter();
+  static void Leave();
 
 protected:
   bool VpuOpen();
@@ -379,7 +385,8 @@ protected:
 
   static const int             m_extraVpuBuffers;   // Number of additional buffers for VPU
   static const int             m_maxVpuDecodeLoops; // Maximum iterations in VPU decoding loop
-
+  static CCriticalSection      m_codecBufferLock;   // Lock to protect buffers handled
+                                                    // by both decoding and rendering threads
   CDVDStreamInfo               m_hints;             // Hints from demuxer at stream opening
   const char                  *m_pFormatName;       // Current decoder format name
   VpuDecOpenParam              m_decOpenParam;      // Parameters required to call VPU_DecOpen

@@ -61,6 +61,7 @@ CIMXContext g_IMXContext;
 // held in decode when dropped.
 const int CDVDVideoCodecIMX::m_extraVpuBuffers = VPU_QUEUE_SIZE+4;
 const int CDVDVideoCodecIMX::m_maxVpuDecodeLoops = 5;
+CCriticalSection CDVDVideoCodecIMX::m_codecBufferLock;
 
 bool CDVDVideoCodecIMX::VpuAllocBuffers(VpuMemInfo *pMemBlock)
 {
@@ -124,7 +125,7 @@ int CDVDVideoCodecIMX::VpuFindBuffer(void *frameAddr)
   return -1;
 }
 
-bool CDVDVideoCodecIMX::VpuFreeBuffers(void)
+bool CDVDVideoCodecIMX::VpuFreeBuffers()
 {
   VpuMemDesc vpuMem;
   VpuDecRetCode vpuRet;
@@ -168,7 +169,7 @@ bool CDVDVideoCodecIMX::VpuFreeBuffers(void)
 }
 
 
-bool CDVDVideoCodecIMX::VpuOpen(void)
+bool CDVDVideoCodecIMX::VpuOpen()
 {
   VpuDecRetCode  ret;
   VpuVersionInfo vpuVersion;
@@ -267,7 +268,7 @@ VpuOpenError:
   return false;
 }
 
-bool CDVDVideoCodecIMX::VpuAllocFrameBuffers(void)
+bool CDVDVideoCodecIMX::VpuAllocFrameBuffers()
 {
   int totalSize = 0;
   int ySize     = 0;
@@ -601,7 +602,7 @@ bool CDVDVideoCodecIMX::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options)
   return true;
 }
 
-void CDVDVideoCodecIMX::Dispose(void)
+void CDVDVideoCodecIMX::Dispose()
 {
 #ifdef DUMP_STREAM
   if (m_dump)
@@ -619,6 +620,8 @@ void CDVDVideoCodecIMX::Dispose(void)
   // Release last buffer
   SAFE_RELEASE(m_lastBuffer);
   SAFE_RELEASE(m_currentBuffer);
+
+  Enter();
 
   // Invalidate output buffers to prevent the renderer from mapping this memory
   for (int i=0; i<m_vpuFrameBufferNum; i++)
@@ -668,6 +671,10 @@ void CDVDVideoCodecIMX::Dispose(void)
       CLog::Log(LOGERROR, "%s - VPU unload failed with error code %d.\n", __FUNCTION__, ret);
     }
   }
+
+  m_ipuFrameBuffers.Close();
+
+  Leave();
 
   if (m_converter)
   {
@@ -1147,6 +1154,16 @@ void CDVDVideoCodecIMX::SetDropState(bool bDrop)
   }
 }
 
+void CDVDVideoCodecIMX::Enter()
+{
+  m_codecBufferLock.lock();
+}
+
+void CDVDVideoCodecIMX::Leave()
+{
+  m_codecBufferLock.unlock();
+}
+
 /*******************************************/
 #ifdef TRACE_FRAMES
 CDVDVideoCodecIMXBuffer::CDVDVideoCodecIMXBuffer(int idx)
@@ -1356,7 +1373,26 @@ void CDVDVideoCodecIMXIPUBuffer::ReleaseFrameBuffer()
 
 bool CDVDVideoCodecIMXIPUBuffer::Show()
 {
-  return m_parent->Show(this);
+  bool ret = false;
+
+  // This is called from the render thread and needs to be synchronized
+  // with detaching the buffer during codec destruction
+  CDVDVideoCodecIMX::Enter();
+  if (m_parent == NULL)
+  {
+    CDVDVideoCodecIMX::Leave();
+    return ret;
+  }
+
+  ret = m_parent->Show(this);
+  CDVDVideoCodecIMX::Leave();
+
+  return ret;
+}
+
+void CDVDVideoCodecIMXIPUBuffer::Detach()
+{
+  m_parent = NULL;
 }
 
 CIMXContext::CIMXContext()
@@ -1440,7 +1476,8 @@ bool CIMXContext::Configure(int pages)
   m_fbVar.activate = FB_ACTIVATE_NOW;
   m_fbVar.xres = m_fbWidth;
   m_fbVar.yres = m_fbHeight;
-  m_fbVar.yres_virtual = m_fbVar.yres * m_fbPages;
+  // One additional line that is required for deinterlacing
+  m_fbVar.yres_virtual = (m_fbVar.yres+1) * m_fbPages;
   m_fbVar.xres_virtual = m_fbVar.xres;
 
   if (ioctl(m_fbHandle, FBIOPUT_VSCREENINFO, &m_fbVar) < 0)
@@ -1691,7 +1728,7 @@ bool CIMXContext::Blit(int page, CIMXBuffer *source_p, CIMXBuffer *source, bool 
     memcpy(pageAddr, pageAddr+m_fbLineLength, m_fbLineLength);
   }
 
-  return true;  
+  return true;
 }
 
 bool CIMXContext::ShowPage(int page)
@@ -1702,7 +1739,7 @@ bool CIMXContext::ShowPage(int page)
   if (page < 0 || page >= m_fbPages) return false;
 
   m_fbVar.activate = FB_ACTIVATE_VBL;
-  m_fbVar.yoffset = m_fbVar.yres*page;
+  m_fbVar.yoffset = (m_fbVar.yres+1)*page;
   if ((ret = ioctl(m_fbHandle, FBIOPAN_DISPLAY, &m_fbVar)) < 0)
     CLog::Log(LOGWARNING, "Panning failed: %s\n", strerror(errno));
 
@@ -1802,7 +1839,10 @@ bool CDVDVideoCodecIMXIPUBuffers::Close()
   if (m_buffers)
   {
     for (int i=0; i < m_bufferNum; i++)
+    {
+      m_buffers[i]->Detach();
       SAFE_RELEASE(m_buffers[i]);
+    }
 
     delete m_buffers;
     m_buffers = NULL;
@@ -1810,7 +1850,7 @@ bool CDVDVideoCodecIMXIPUBuffers::Close()
 
   m_bufferNum = 0;
 
-  return true;
+  return ret;
 }
 
 CDVDVideoCodecIMXIPUBuffer *
@@ -2055,7 +2095,7 @@ void CDVDVideoMixerIMX::Process()
             outputBuffer->SetPts(pts);
             PushOutput(outputBuffer);
             WaitForFreeOutput();
-          } 
+          }
 
           g_IMXContext.SetInterpolatedFrame(false);
         }
