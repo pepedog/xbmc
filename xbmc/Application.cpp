@@ -1121,7 +1121,7 @@ bool CApplication::InitDirectoriesLinux()
     CSpecialProtocol::SetHomePath(userHome + "/" + dotLowerAppName);
     CSpecialProtocol::SetMasterProfilePath(userHome + "/" + dotLowerAppName + "/userdata");
 
-    CStdString strTempPath = userHome;
+    std::string strTempPath = userHome;
     strTempPath = URIUtils::AddFileToFolder(strTempPath, dotLowerAppName + "/temp");
     if (getenv(envAppTemp))
       strTempPath = getenv(envAppTemp);
