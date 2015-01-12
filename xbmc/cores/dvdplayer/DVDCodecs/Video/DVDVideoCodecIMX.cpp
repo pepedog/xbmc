@@ -27,7 +27,6 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <linux/ipu.h>
-#include "cores/VideoRenderers/RenderManager.h"
 #include "settings/MediaSettings.h"
 #include "settings/VideoSettings.h"
 #include "settings/AdvancedSettings.h"
@@ -396,9 +395,9 @@ bool CDVDVideoCodecIMX::VpuAllocFrameBuffers()
     m_vpuFrameBuffers[i].pbufVirtCb_tilebot = 0;
 
 #ifdef TRACE_FRAMES
-    m_outputBuffers[i] = new CDVDVideoCodecIMXVPUBuffer(i);
+    m_outputBuffers[i] = new CDVDVideoCodecIMXVPUBuffer(&m_ipuFrameBuffers, i);
 #else
-    m_outputBuffers[i] = new CDVDVideoCodecIMXVPUBuffer();
+    m_outputBuffers[i] = new CDVDVideoCodecIMXVPUBuffer(&m_ipuFrameBuffers);
 #endif
     // Those buffers are ours so lock them to prevent destruction
     m_outputBuffers[i]->Lock();
@@ -627,6 +626,7 @@ void CDVDVideoCodecIMX::Dispose()
   for (int i=0; i<m_vpuFrameBufferNum; i++)
   {
     m_outputBuffers[i]->ReleaseFramebuffer(&m_vpuHandle);
+    m_outputBuffers[i]->Detach();
     SAFE_RELEASE(m_outputBuffers[i]);
   }
 
@@ -1166,16 +1166,22 @@ void CDVDVideoCodecIMX::Leave()
 
 /*******************************************/
 #ifdef TRACE_FRAMES
-CDVDVideoCodecIMXBuffer::CDVDVideoCodecIMXBuffer(int idx)
+CDVDVideoCodecIMXBuffer::CDVDVideoCodecIMXBuffer(CDVDVideoCodecIMXIPUBuffers *p, int idx)
   : m_idx(idx)
-  , m_pts(DVD_NOPTS_VALUE)
+  , m_parent(p)
 #else
-CDVDVideoCodecIMXBuffer::CDVDVideoCodecIMXBuffer()
-  : m_pts(DVD_NOPTS_VALUE)
+CDVDVideoCodecIMXBuffer::CDVDVideoCodecIMXBuffer(CDVDVideoCodecIMXIPUBuffers *p)
+  : m_parent(p)
 #endif
+  , m_pts(DVD_NOPTS_VALUE)
   , m_dts(DVD_NOPTS_VALUE)
   , m_drop(false)
 {
+}
+
+void CDVDVideoCodecIMXBuffer::Detach()
+{
+  m_parent = NULL;
 }
 
 void CDVDVideoCodecIMXBuffer::SetPts(double pts)
@@ -1189,11 +1195,11 @@ void CDVDVideoCodecIMXBuffer::SetDts(double dts)
 }
 
 #ifdef TRACE_FRAMES
-CDVDVideoCodecIMXVPUBuffer::CDVDVideoCodecIMXVPUBuffer(int idx)
-  : CDVDVideoCodecIMXBuffer(idx)
+CDVDVideoCodecIMXVPUBuffer::CDVDVideoCodecIMXVPUBuffer(CDVDVideoCodecIMXIPUBuffers *p, int idx)
+  : CDVDVideoCodecIMXBuffer(p, idx)
 #else
-CDVDVideoCodecIMXVPUBuffer::CDVDVideoCodecIMXVPUBuffer()
-  : CDVDVideoCodecIMXBuffer()
+CDVDVideoCodecIMXVPUBuffer::CDVDVideoCodecIMXVPUBuffer(CDVDVideoCodecIMXIPUBuffers *p)
+  : CDVDVideoCodecIMXBuffer(p)
 #endif
   , m_frameBuffer(NULL)
   , m_rendered(false)
@@ -1246,6 +1252,12 @@ long CDVDVideoCodecIMXVPUBuffer::Release()
 bool CDVDVideoCodecIMXVPUBuffer::IsValid()
 {
   return m_frameBuffer != NULL;
+}
+
+bool CDVDVideoCodecIMXVPUBuffer::Show()
+{
+  // VPU buffers can't be shown
+  return false;
 }
 
 bool CDVDVideoCodecIMXVPUBuffer::Rendered() const
@@ -1310,13 +1322,12 @@ CDVDVideoCodecIMXVPUBuffer::~CDVDVideoCodecIMXVPUBuffer()
 
 #ifdef TRACE_FRAMES
 CDVDVideoCodecIMXIPUBuffer::CDVDVideoCodecIMXIPUBuffer(CDVDVideoCodecIMXIPUBuffers *p, int idx)
-  : CDVDVideoCodecIMXBuffer(idx)
+  : CDVDVideoCodecIMXBuffer(p, idx)
 #else
 CDVDVideoCodecIMXIPUBuffer::CDVDVideoCodecIMXIPUBuffer(CDVDVideoCodecIMXIPUBuffers *p)
-  : CDVDVideoCodecIMXBuffer()
+  : CDVDVideoCodecIMXBuffer(p)
 #endif
   , iPage(-1)
-  , m_parent(p)
   , m_bFree(true)
 {
 }
@@ -1373,7 +1384,7 @@ void CDVDVideoCodecIMXIPUBuffer::ReleaseFrameBuffer()
 
 bool CDVDVideoCodecIMXIPUBuffer::Show()
 {
-  bool ret = false;
+  bool ret = g_IMXContext.ShowPage(iPage);
 
   // This is called from the render thread and needs to be synchronized
   // with detaching the buffer during codec destruction
@@ -1388,11 +1399,6 @@ bool CDVDVideoCodecIMXIPUBuffer::Show()
   CDVDVideoCodecIMX::Leave();
 
   return ret;
-}
-
-void CDVDVideoCodecIMXIPUBuffer::Detach()
-{
-  m_parent = NULL;
 }
 
 CIMXContext::CIMXContext()
@@ -1413,6 +1419,8 @@ CIMXContext::~CIMXContext()
 
 bool CIMXContext::Configure(int pages)
 {
+  SetBlitRects(CRectInt(), CRectInt());
+
   int fb0 = open("/dev/fb0", O_RDWR, 0);
 
   if (fb0 < 0)
@@ -1620,6 +1628,16 @@ inline void CIMXContext::SetDeInterlacing(bool flag)
   m_deInterlacing = flag;
 }
 
+void CIMXContext::SetBlitRects(const CRect &, const CRect &dstRect)
+{
+  m_rectLock.lock();
+  // Ignore srcRect for now since that needs proper synchronization or moving
+  // the rendering into the VideoRenderer thread
+  //m_srcRect = srcRect;
+  m_dstRect = dstRect;
+  m_rectLock.unlock();
+}
+
 bool CIMXContext::Blit(int page, CIMXBuffer *source_p, CIMXBuffer *source, bool topBottomFields)
 {
   if (page < 0 || page >= m_fbPages)
@@ -1629,12 +1647,65 @@ bool CIMXContext::Blit(int page, CIMXBuffer *source_p, CIMXBuffer *source, bool 
   struct ipu_task task;
   memset(&task, 0, sizeof(task));
 
+  // Protect m_srcRect and m_dstRect from modification
+  m_rectLock.lock();
+
+  // The source rect is always the full VPU buffer rect
+  m_srcRect.x1 = 0;
+  m_srcRect.y1 = 0;
+  m_srcRect.x2 = source->iWidth;
+  m_srcRect.y2 = source->iHeight;
+
+  CRect srcRect = m_srcRect;
+  CRect dstRect = m_dstRect;
+
+  float srcWidth = srcRect.Width();
+  float srcHeight = srcRect.Height();
+  float dstWidth = dstRect.Width();
+  float dstHeight = dstRect.Height();
+
+  // Project coordinates outside the target buffer rect to
+  // the source rect otherwise the IPU task will fail
+  // This is under the assumption that the srcRect is always
+  // inside the input buffer rect. If that is not the case
+  // it needs to be projected to the ouput buffer rect as well
+  if (dstRect.x1 < 0)
+  {
+    srcRect.x1 -= dstRect.x1*srcWidth / dstWidth;
+    dstRect.x1 = 0;
+  }
+  if (dstRect.x2 > m_fbWidth)
+  {
+    srcRect.x2 -= (dstRect.x2-m_fbWidth)*srcWidth / dstWidth;
+    dstRect.x2 = m_fbWidth;
+  }
+  if (dstRect.y1 < 0)
+  {
+    srcRect.y1 -= dstRect.y1*srcHeight / dstHeight;
+    dstRect.y1 = 0;
+  }
+  if (dstRect.y2 > m_fbHeight)
+  {
+    srcRect.y2 -= (dstRect.y2-m_fbHeight)*srcHeight / dstHeight;
+    dstRect.y2 = m_fbHeight;
+  }
+
+  m_inputRect.x1 = Align((int)srcRect.x1,8);
+  m_inputRect.y1 = Align((int)srcRect.y1,8);
+  m_inputRect.x2 = Align((int)srcRect.x2,8);
+  m_inputRect.y2 = Align((int)srcRect.y2,8);
+
+  m_outputRect.x1 = Align((int)dstRect.x1,8);
+  m_outputRect.y1 = Align((int)dstRect.y1,8);
+  m_outputRect.x2 = Align((int)dstRect.x2,8);
+  m_outputRect.y2 = Align((int)dstRect.y2,8);
+
   task.input.width      = source->iWidth;
   task.input.height     = source->iHeight;
-  task.input.crop.pos.x = 0;
-  task.input.crop.pos.y = 0;
-  task.input.crop.w     = source->iWidth;
-  task.input.crop.h     = source->iHeight;
+  task.input.crop.pos.x = m_inputRect.x1;
+  task.input.crop.pos.y = m_inputRect.y1;
+  task.input.crop.w     = m_inputRect.Width();
+  task.input.crop.h     = m_inputRect.Height();
   task.input.format     = source->iFormat;
   task.input.paddr      = source->pPhysAddr;
 
@@ -1665,30 +1736,24 @@ bool CIMXContext::Blit(int page, CIMXBuffer *source_p, CIMXBuffer *source, bool 
   task.output.format = m_fbVar.nonstd;
   task.output.paddr  = m_fbPhysAddr + page*m_fbPageSize;
 
-  // Setup viewport cropping
-  CRectInt cropRect;
-
-  CRect srcRect, destRect;
-  g_renderManager.GetVideoRect(srcRect, destRect);
-
-  // TODO: Handle negative destination coordinates which
-  //       are not handled by the IPU
-  cropRect.x1 = Align((int)destRect.x1,8);
-  cropRect.y1 = Align((int)destRect.y1,8);
-  cropRect.x2 = Align2((int)destRect.x2,8);
-  cropRect.y2 = Align2((int)destRect.y2,8);
-
-  task.output.crop.pos.x = cropRect.x1;
-  task.output.crop.pos.y = cropRect.y1;
-  task.output.crop.w = cropRect.Width();
-  task.output.crop.h = cropRect.Height();
+  task.output.crop.pos.x = m_outputRect.x1;
+  task.output.crop.pos.y = m_outputRect.y1;
+  task.output.crop.w = m_outputRect.Width();
+  task.output.crop.h = m_outputRect.Height();
 
   // Clear page if cropping changes
-  if (m_pageCrops[page] != cropRect)
+  if (m_pageCrops[page] != m_outputRect)
   {
+    m_pageCrops[page] = m_outputRect;
+    m_rectLock.unlock();
     Clear(page);
-    m_pageCrops[page] = cropRect;
   }
+  else
+    m_rectLock.unlock();
+
+  if ((task.input.crop.w <= 0) || (task.input.crop.h <= 0)
+    ||(task.output.crop.w <= 0) || (task.output.crop.h <= 0))
+    return false;
 
   ret = IPU_CHECK_ERR_INPUT_CROP;
   while ( ret != IPU_CHECK_OK && ret > IPU_CHECK_ERR_MIN ) {
@@ -1890,11 +1955,10 @@ CDVDVideoCodecIMXIPUBuffers::Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer)
 }
 
 bool CDVDVideoCodecIMXIPUBuffers::Show(CDVDVideoCodecIMXIPUBuffer *buf) {
-  bool ret = g_IMXContext.ShowPage(buf->iPage);
   SAFE_RELEASE(m_displayBuffer);
   m_displayBuffer = buf;
   m_displayBuffer->Lock();
-  return ret;
+  return true;
 }
 
 bool CDVDVideoCodecIMXIPUBuffers::Blit(CDVDVideoCodecIMXIPUBuffer *target,
@@ -2110,6 +2174,9 @@ void CDVDVideoMixerIMX::Process()
           outputBuffer->SetDts(inputBuffer->GetDts());
           PushOutput(outputBuffer);
         }
+        else
+          // Forward unprocessed frame
+          PushOutput(inputBuffer);
       }
 
       SAFE_RELEASE(inputBuffer);

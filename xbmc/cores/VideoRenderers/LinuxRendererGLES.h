@@ -180,6 +180,8 @@ public:
 #endif
 
 protected:
+  void ManageDisplay();
+
   virtual void Render(DWORD flags, int index);
   void RenderUpdateVideo(bool clear, DWORD flags = 0, DWORD alpha = 255);
 

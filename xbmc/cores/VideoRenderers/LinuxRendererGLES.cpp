@@ -986,6 +986,15 @@ void CLinuxRendererGLES::ReleaseBuffer(int idx)
 #endif
 }
 
+void CLinuxRendererGLES::ManageDisplay()
+{
+  CBaseRenderer::ManageDisplay();
+#ifdef HAS_IMXVPU
+  // Update the current rects for iMX context
+  g_IMXContext.SetBlitRects(m_sourceRect, m_destRect);
+#endif
+}
+
 void CLinuxRendererGLES::Render(DWORD flags, int index)
 {
   // If rendered directly by the hardware
@@ -1701,6 +1710,7 @@ void CLinuxRendererGLES::RenderIMXMAPTexture(int index, int field)
   else
     buffer->Blit();
   */
+
   buffer->Show();
 #else
 #ifdef DEBUG_VERBOSE

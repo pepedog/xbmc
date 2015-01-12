@@ -105,10 +105,13 @@ class CDVDVideoCodecIMXIPUBuffers;
 class CDVDVideoCodecIMXBuffer : public CIMXBuffer {
 public:
 #ifdef TRACE_FRAMES
-  CDVDVideoCodecIMXBuffer(int idx);
+  CDVDVideoCodecIMXBuffer(CDVDVideoCodecIMXIPUBuffers *p, int idx);
 #else
-  CDVDVideoCodecIMXBuffer();
+  CDVDVideoCodecIMXBuffer(CDVDVideoCodecIMXIPUBuffers *p);
 #endif
+
+  // Detaches the buffer from its parent
+  void          Detach();
 
   void          SetPts(double pts);
   double        GetPts() const { return m_pts; }
@@ -120,7 +123,7 @@ public:
   bool          Dropped() const { return m_drop; }
 
   // Shows the buffer. Only IPU buffers can be shown.
-  virtual bool  Show() {}
+  virtual bool  Show() = 0;
 
   bool          bDoubled;
 
@@ -128,6 +131,7 @@ protected:
 #ifdef TRACE_FRAMES
   int           m_idx;
 #endif
+  CDVDVideoCodecIMXIPUBuffers *m_parent;
 
 private:
   double        m_pts;
@@ -140,15 +144,17 @@ class CDVDVideoCodecIMXVPUBuffer : public CDVDVideoCodecIMXBuffer
 {
 public:
 #ifdef TRACE_FRAMES
-  CDVDVideoCodecIMXVPUBuffer(int idx);
+  CDVDVideoCodecIMXVPUBuffer(CDVDVideoCodecIMXIPUBuffers *p, int idx);
 #else
-  CDVDVideoCodecIMXVPUBuffer();
+  CDVDVideoCodecIMXVPUBuffer(CDVDVideoCodecIMXIPUBuffers *p);
 #endif
 
   // reference counting
   virtual void                Lock();
   virtual long                Release();
   virtual bool                IsValid();
+
+  virtual bool                Show();
 
   bool                        Rendered() const;
   void                        Queue(VpuDecOutFrameInfo *frameInfo,
@@ -194,9 +200,6 @@ public:
 
   bool         Show();
 
-  // Detaches the buffer from its parent
-  void         Detach();
-
 private:
   virtual      ~CDVDVideoCodecIMXIPUBuffer();
 
@@ -204,7 +207,6 @@ public:
   int          iPage;
 
 private:
-  CDVDVideoCodecIMXIPUBuffers* m_parent;
   bool         m_bFree;
 };
 
@@ -238,6 +240,8 @@ public:
   bool     DoubleRate() const;
   void     SetInterpolatedFrame(bool flag);
 
+  void     SetBlitRects(const CRect &srcRect, const CRect &dstRect);
+
   // Blits a buffer to a particular page.
   // source_p (previous buffer) is required for de-interlacing
   // modes LOW_MOTION and MED_MOTION.
@@ -266,7 +270,12 @@ private:
   int                          m_currentFieldFmt;
   bool                         m_vsync;
   bool                         m_deInterlacing;
+  CRect                        m_srcRect;
+  CRect                        m_dstRect;
+  CRectInt                     m_inputRect;
+  CRectInt                     m_outputRect;
   CRectInt                    *m_pageCrops;
+  CCriticalSection             m_rectLock;
 };
 
 
