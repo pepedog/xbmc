@@ -1384,20 +1384,17 @@ void CDVDVideoCodecIMXIPUBuffer::ReleaseFrameBuffer()
 
 bool CDVDVideoCodecIMXIPUBuffer::Show()
 {
-  bool ret = g_IMXContext.ShowPage(iPage);
-
   // This is called from the render thread and needs to be synchronized
   // with detaching the buffer during codec destruction
   CDVDVideoCodecIMX::Enter();
   if (m_parent == NULL)
   {
     CDVDVideoCodecIMX::Leave();
-    return ret;
+    return false;
   }
 
-  ret = m_parent->Show(this);
+  bool ret = m_parent->Show(this);
   CDVDVideoCodecIMX::Leave();
-
   return ret;
 }
 
@@ -1955,10 +1952,11 @@ CDVDVideoCodecIMXIPUBuffers::Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer)
 }
 
 bool CDVDVideoCodecIMXIPUBuffers::Show(CDVDVideoCodecIMXIPUBuffer *buf) {
+  bool ret = g_IMXContext.ShowPage(buf->iPage);
   SAFE_RELEASE(m_displayBuffer);
   m_displayBuffer = buf;
   m_displayBuffer->Lock();
-  return true;
+  return ret;
 }
 
 bool CDVDVideoCodecIMXIPUBuffers::Blit(CDVDVideoCodecIMXIPUBuffer *target,
