@@ -55,27 +55,6 @@ bool CEGLNativeTypeIMX::CheckCompatibility()
 void CEGLNativeTypeIMX::Initialize()
 {
   int fd;
-  struct mxcfb_loc_alpha lalpha;
-
-  fd = open("/dev/fb0",O_RDWR);
-  if (fd < 0)
-  {
-    CLog::Log(LOGERROR, "%s - Error while opening /dev/fb0.\n", __FUNCTION__);
-    return;
-  }
-
-  // Configure local alpha
-  lalpha.enable = 1;
-  lalpha.alpha_in_pixel = 1;
-  ioctl(fd, MXCFB_SET_LOC_ALPHA, &lalpha);
-
-  // Unblank the fb
-  if (ioctl(fd, FBIOBLANK, 0) < 0)
-  {
-    CLog::Log(LOGERROR, "%s - Error while unblanking fb0.\n", __FUNCTION__);
-  }
-
-  close(fd);
 
   // Check if we can change the framebuffer resolution
   fd = open("/sys/class/graphics/fb0/mode", O_RDWR);
@@ -91,25 +70,61 @@ void CEGLNativeTypeIMX::Initialize()
   }
   close(fd);
 
-  // Switch to 32bit if not set already
+  bool alphaBlending = false;
   std::string bpp;
   if (SysfsUtils::GetString("/sys/class/graphics/fb0/bits_per_pixel", bpp))
   {
-    CLog::Log(LOGWARNING, "%s - determining current bits per pixel failed\n", __FUNCTION__);
+    CLog::Log(LOGWARNING, "%s - determining current bits per pixel failed, assuming 16bpp\n", __FUNCTION__);
   }
   else
   {
     StringUtils::Trim(bpp);
-    if (bpp != "32")
+    if (bpp == "32")
     {
-      if (SysfsUtils::SetString("/sys/class/graphics/fb0/bits_per_pixel", "32"))
-      {
-        CLog::Log(LOGWARNING, "%s - setting bits per pixel to 32 failed\n", __FUNCTION__);
-      }
+      CLog::Log(LOGNOTICE, "%s - 32bpp: configure alpha blending\n", __FUNCTION__);
+      alphaBlending = true;
     }
     else
-      CLog::Log(LOGNOTICE, "%s - BPP = 32: OK\n", __FUNCTION__);
+    {
+      CLog::Log(LOGNOTICE, "%s - %sbpp: configure color keying\n", __FUNCTION__, bpp.c_str());
+    }
   }
+
+  fd = open("/dev/fb0",O_RDWR);
+  if (fd < 0)
+  {
+    CLog::Log(LOGERROR, "%s - Error while opening /dev/fb0.\n", __FUNCTION__);
+    return;
+  }
+
+  struct mxcfb_color_key colorKey;
+  struct mxcfb_gbl_alpha gbl_alpha;
+  struct mxcfb_loc_alpha lalpha;
+  memset(&lalpha, 0, sizeof(lalpha));
+
+  // Configure local alpha
+  lalpha.enable = alphaBlending?1:0;
+  lalpha.alpha_in_pixel = 1;
+  if (ioctl(fd, MXCFB_SET_LOC_ALPHA, &lalpha) < 0)
+    CLog::Log(LOGERROR, "%s - Failed to setup alpha blending\n", __FUNCTION__);
+
+  gbl_alpha.alpha = 255;
+  gbl_alpha.enable = alphaBlending?0:1;
+  if (ioctl(fd, MXCFB_SET_GBL_ALPHA, &gbl_alpha) < 0)
+    CLog::Log(LOGERROR, "%s - Failed to setup global alpha\n", __FUNCTION__);
+
+  colorKey.enable = alphaBlending?0:1;
+  colorKey.color_key = (16 << 16)|(8 << 8)|16;
+  if (ioctl(fd, MXCFB_SET_CLR_KEY, &colorKey) < 0)
+    CLog::Log(LOGERROR, "%s - Failed to setup color keying\n", __FUNCTION__);
+
+  // Unblank the fb
+  if (ioctl(fd, FBIOBLANK, 0) < 0)
+  {
+    CLog::Log(LOGERROR, "%s - Error while unblanking fb0.\n", __FUNCTION__);
+  }
+
+  close(fd);
 
   return;
 }
