@@ -1800,7 +1800,7 @@ bool CIMXContext::ShowPage(int page)
   if (!m_fbHandle) return false;
   if (page < 0 || page >= m_fbPages) return false;
 
-  m_fbVar.activate = FB_ACTIVATE_VBL;
+  m_fbVar.activate = m_vsync?FB_ACTIVATE_VBL:FB_ACTIVATE_NOW;
   m_fbVar.yoffset = (m_fbVar.yres+1)*page;
   if ((ret = ioctl(m_fbHandle, FBIOPAN_DISPLAY, &m_fbVar)) < 0)
     CLog::Log(LOGWARNING, "Panning failed: %s\n", strerror(errno));
@@ -1827,11 +1827,14 @@ void CIMXContext::Clear(int page)
     tmp_buf = m_fbVirtAddr;
     pixels = m_fbPageSize*m_fbPages/2;
   }
-  else
+  else if (page < m_fbPages)
   {
     tmp_buf = m_fbVirtAddr + page*m_fbPageSize;
     pixels = m_fbPageSize/2;
   }
+  else
+    // out of range
+    return;
 
   for (int i = 0; i < pixels; ++i, tmp_buf += 2)
   {
@@ -1861,6 +1864,7 @@ bool CDVDVideoCodecIMXIPUBuffers::Init(int numBuffers)
 
   m_bufferNum = numBuffers;
   m_buffers = new CDVDVideoCodecIMXIPUBuffer*[m_bufferNum];
+  m_lastBuffer = 0;
 
   for (int i=0; i < m_bufferNum; ++i)
   {
@@ -1924,8 +1928,9 @@ CDVDVideoCodecIMXIPUBuffers::Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer)
   if (!m_bufferNum)
     return NULL;
 
-  for (int i=0; i < m_bufferNum; i++ )
+  for (int c=0; c < m_bufferNum; ++c)
   {
+    int i = (m_lastBuffer+c+1) % m_bufferNum;
     if (!m_buffers[i]->Rendered()) continue;
 
     // IPU process:
@@ -1938,6 +1943,7 @@ CDVDVideoCodecIMXIPUBuffers::Process(CDVDVideoCodecIMXVPUBuffer *sourceBuffer)
       CLog::Log(LOGDEBUG, "+  %02d  (IPU)\n", i);
 #endif
       target = m_buffers[i];
+      m_lastBuffer = i+1;
     }
     break;
   }

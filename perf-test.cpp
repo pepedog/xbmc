@@ -440,6 +440,13 @@ class OutputBase : private CThread {
 			DVDVideoPicture p;
 
 			while ( m_queue->Pop(p) ) {
+				CRect srcRect, dstRect;
+				dstRect.x1 = 0;
+				dstRect.y1 = 0;
+				dstRect.x2 = screeninfo.xres;
+				dstRect.y2 = screeninfo.yres;
+				g_IMXContext.SetBlitRects(srcRect, dstRect);
+
 				if ( !Ouput(p) ) {
 					cerr << "Abort output, false returned" << endl;
 					return false;
@@ -637,17 +644,9 @@ class FB : public Stats {
 		}
 
 		virtual bool Ouput(DVDVideoPicture &p) {
-			CRect srcRect, dstRect;
-			dstRect.x1 = 0;
-			dstRect.y1 = 0;
-			dstRect.x2 = screeninfo.xres;
-			dstRect.y2 = screeninfo.yres;
-			g_IMXContext.SetBlitRects(srcRect, dstRect);
-
 			CDVDVideoCodecIMXBuffer *buf = (CDVDVideoCodecIMXBuffer*)p.IMXBuffer;
-			if ( buf != NULL && buf->IsValid() ) {
+			if ( buf != NULL && buf->IsValid() )
 				buf->Show();
-			}
 
 			return Stats::Ouput(p);
 		}
@@ -666,7 +665,7 @@ void test(const char *filename) {
 	DVDVideoPicture *pic;
 	T out(&queue);
 
-	queue.SetCapacity(codec.GetAllowedReferences());
+	queue.SetCapacity(3);
 	out.Start();
 
 	while ( !appExit && ((pic = it.next()) != NULL) )

@@ -309,6 +309,7 @@ private:
   CDVDVideoCodecIMXIPUBuffer  *m_displayBuffer;
   bool                         m_autoMode;
   int                          m_bufferNum;
+  int                          m_lastBuffer;
   CDVDVideoCodecIMXIPUBuffer **m_buffers;
 };
 
