@@ -38,8 +38,7 @@ using namespace std;
 bool appExit = false;
 bool doubleRate = false;
 bool lowMotion = false;
-bool eglVSync = false;
-bool eglTest = false;
+bool vSync = false;
 int  duration = 40;
 
 
@@ -160,7 +159,7 @@ int initEGL() {
 	eglMakeCurrent(display, surface, surface, context);
 	CheckError("eglMakeCurrent");
 
-	eglSwapInterval(display, eglVSync?1:0);
+	eglSwapInterval(display, vSync?1:0);
 	CheckError("eglSwapInterval");
 
 	return 0;
@@ -562,16 +561,19 @@ class EGL : public Stats {
 			GLenum format = GL_INVALID_ENUM;
 
 			switch ( p.IMXBuffer->iFormat ) {
-				case 0:
+				case _4CC('I','4','2','0'):
 					format = GL_VIV_I420;
 					break;
-				case 1:
+				case _4CC('N','V','1','2'):
 					format = GL_VIV_NV12;
 					break;
-				case 2:
+				case _4CC('U', 'Y', 'V', 'Y'):
+					format = GL_VIV_UYVY;
+					break;
+				case _4CC('R','G','B','4'):
 					format = GL_RGB565;
 					break;
-				case 3:
+				case _4CC('R','G','B','P'):
 					format = GL_RGBA;
 					break;
 				default:
@@ -606,7 +608,7 @@ class EGL : public Stats {
 
 class FB : public Stats {
 	public:
-		FB(Queue *q) : Stats(q), _fd(-1), _ipu(-1), _lastBuffer(NULL) {}
+		FB(Queue *q) : Stats(q) {}
 
 		virtual bool Init() {
 			if ( initFB() ) {
@@ -614,104 +616,14 @@ class FB : public Stats {
 				return false;
 			}
 
-			if ( initEGL() ) {
-				cerr << "EGL init failed" << endl;
-				cleanup();
-				return false;
-			}
+			struct mxcfb_gbl_alpha alpha;
+			struct mxcfb_loc_alpha lalpha;
+			int fd;
 
-			_numPages = 1;
-			const char *fb = getenv("FB_MULTI_BUFFER");
-			if ( fb != NULL ) {
-				_numPages = atoi(fb);
-				if ( _numPages < 1 || _numPages > 3 ) {
-					cerr << "Invalid FB_MULTI_BUFFER value, falling back to default" << endl;
-					_numPages = 1;
-				}
-			}
+			fd = open("/dev/fb0",O_RDWR);
 
-			_ipu = open("/dev/mxc_ipu", O_RDWR, 0);
-			if ( _ipu < 0 ) {
-				cerr << "Unable to open /dev/mxc_ipu" << endl;
-				return false;
-			}
-
-			int screenWidth, screenHeight;
-			if ( !GetResolution(0, screenWidth, screenHeight) ) {
-				cerr << "Query for screen resolution failed" << endl;
-				cleanup();
-				return false;
-			}
-
-			const char *deviceName = "/dev/fb1";
-			// Open Framebuffer and gets its address
-			_fd = open(deviceName, O_RDWR | O_NONBLOCK, 0);
-			if ( _fd < 0 ) {
-				cerr << "Unable to open " << deviceName << endl;
-				cleanup();
-				return false;
-			}
-
-			if ( ioctl(_fd, FBIOGET_VSCREENINFO, &_vInitScreenInfo) < 0 ) {
-				cerr << "Failed to get variable screen info" << endl;
-				cleanup();
-				return false;
-			}
-
-			memcpy(&_vScreenInfo, &_vInitScreenInfo, sizeof(_vScreenInfo));
-
-			_vScreenInfo.xoffset = 0;
-			_vScreenInfo.yoffset = 0;
-			_vScreenInfo.bits_per_pixel = 16;
-			_vScreenInfo.nonstd = v4l2_fourcc('U', 'Y', 'V', 'Y');
-			//_vScreenInfo.nonstd = v4l2_fourcc('R', 'G', 'B', 'P');
-			_vScreenInfo.activate = FB_ACTIVATE_NOW;
-			_vScreenInfo.xres = screenWidth;
-			_vScreenInfo.yres = screenHeight;
-			_vScreenInfo.yres_virtual = _vScreenInfo.yres * _numPages;
-			_vScreenInfo.xres_virtual = _vScreenInfo.xres;
-
-			if ( ioctl(_fd, FBIOPUT_VSCREENINFO, &_vScreenInfo) < 0 ) {
-				cerr << "Failed to set variable screen info" << endl;
-				cleanup();
-				return false;
-			}
-
-			if ( ioctl(_fd, FBIOGET_FSCREENINFO, &_fScreenInfo) < 0 ) {
-				cerr << "Failed to get fixed screen info" << endl;
-				cleanup();
-				return false;
-			}
-
-			_fbSize = _fScreenInfo.line_length * _vScreenInfo.yres_virtual;
-			//_numPages = _vScreenInfo.yres_virtual / _vScreenInfo.yres;
-
-			if ( ioctl(_fd, FBIOBLANK, FB_BLANK_UNBLANK) < 0 ) {
-				cerr << "Unblanking failed" << endl;
-				cleanup();
-				return false;
-			}
-
-			_fbPageSize = _fbSize / _numPages;
-
-			cerr << "Render pages: " << _numPages << endl;
-			cerr << "Visible resolution: " << _vScreenInfo.xres << "x"
-			     << _vScreenInfo.yres
-			     << "@" << _vScreenInfo.bits_per_pixel << endl;
-			cerr << "Virtual resolution: " << _vScreenInfo.xres_virtual << "x"
-			     << _vScreenInfo.yres_virtual
-			     << "@" << _vScreenInfo.bits_per_pixel << endl;
-			cerr << "Page size: " << _fbPageSize << endl;
-			cerr << "Line length: " << _fScreenInfo.line_length << endl;
-
-			_currentPage = 0;
-
-			{
-				struct mxcfb_gbl_alpha alpha;
-				struct mxcfb_loc_alpha lalpha;
-				int fd;
-
-				fd = open("/dev/fb0",O_RDWR);
+			// Setup alpha blending
+			if ( fd > 0 ) {
 				alpha.alpha = 255;
 				alpha.enable = 1;
 				ioctl(fd, MXCFB_SET_GBL_ALPHA, &alpha);
@@ -721,358 +633,28 @@ class FB : public Stats {
 				close(fd);
 			}
 
-			/*
-			{
-				void *vbuf = mmap(0, _fbSize, PROT_READ | PROT_WRITE, MAP_SHARED, _fd, 0);
-				if ( vbuf != NULL ) {
-					memset(vbuf, 0, _fbSize);
-					munmap(vbuf, _fbSize);
-					cerr << "Cleared display buffer" << endl;
-				}
-			}
-			*/
-
-			_enableDeinterlacing = CMediaSettings::Get().GetCurrentVideoSettings().m_DeinterlaceMode == VS_DEINTERLACEMODE_FORCE;
-
-			// Switch deinterlacing always off since it is done in the renderer
-			CMediaSettings::Get().GetCurrentVideoSettings().m_DeinterlaceMode = VS_DEINTERLACEMODE_OFF;
-
-			glViewport(0, 0, screenWidth, screenHeight);
-
-			const char vertex_shader [] =
-			"                                        \
-			   attribute vec4 position;              \
-			   uniform mat4   mvp;                   \
-			                                         \
-			   void main()                           \
-			   {                                     \
-			      gl_Position = mvp * position;      \
-			   }                                     \
-			";
-
-			const char fragment_shader [] =
-			"                                        \
-			   void  main()                          \
-			   {                                     \
-			     gl_FragColor = vec4(0,1,0,0.7);     \
-			   }                                     \
-			";
-
-			GLuint vertexShader = loadShader(vertex_shader, GL_VERTEX_SHADER);
-			GLuint fragmentShader = loadShader(fragment_shader, GL_FRAGMENT_SHADER);
-			GLuint shaderProg = glCreateProgram();
-			glAttachShader(shaderProg, vertexShader);
-			glAttachShader(shaderProg, fragmentShader);
-
-			glLinkProgram(shaderProg);
-			glUseProgram(shaderProg);
-
-			position_loc = glGetAttribLocation(shaderProg, "position");
-			int mvp_loc = glGetUniformLocation(shaderProg, "mvp");
-			GLfloat mvp[] = {
-				2.0/screenWidth,                 0,  0,  0,
-				              0, -2.0/screenHeight,  0,  0,
-				              0,                 0, -1,  0,
-				             -1,                 1,  0,  1
-			};
-
-			glUniformMatrix4fv(mvp_loc, 1, false, mvp);
-
-			glClearColor(0.0,0.0,0.0,0.0);
-			glClear(GL_COLOR_BUFFER_BIT);
-
-			_frameDuration = doubleRate?duration/2:duration;
-
 			return Stats::Init();
 		}
 
 		virtual bool Ouput(DVDVideoPicture &p) {
-			SetupViewPort(Rect(0, 0, _vScreenInfo.xres, _vScreenInfo.yres));
+			CRect srcRect, dstRect;
+			dstRect.x1 = 0;
+			dstRect.y1 = 0;
+			dstRect.x2 = screeninfo.xres;
+			dstRect.y2 = screeninfo.yres;
+			g_IMXContext.SetBlitRects(srcRect, dstRect);
 
-			//SetupViewPort(Rect(_vScreenInfo.xres/2, _vScreenInfo.yres/2,
-			//                   _vScreenInfo.xres/2, _vScreenInfo.yres/2));
-
-			int ret;
-			CDVDVideoCodecIMXVPUBuffer *buf = (CDVDVideoCodecIMXVPUBuffer*)p.IMXBuffer;
-			struct ipu_task task;
-			memset(&task, 0, sizeof(task));
-
-			task.input.width = buf->iWidth;
-			task.input.height = buf->iHeight;
-			task.input.crop.pos.x = 0;
-			task.input.crop.pos.y = 0;
-			task.input.crop.w = buf->iWidth;
-			task.input.crop.h = buf->iHeight;
-
-			switch ( buf->iFormat ) {
-				case 0:
-					task.input.format = IPU_PIX_FMT_YUV420P;
-					break;
-				case 1:
-					task.input.format = IPU_PIX_FMT_NV12;
-					break;
-				case 2:
-					task.input.format = IPU_PIX_FMT_RGB565;
-					break;
-				case 3:
-					task.input.format = IPU_PIX_FMT_RGB32;
-					break;
-				default:
-					Stats::Ouput(p);
-					cerr << "Unknown buffer format " << buf->iFormat << endl;
-					return false;
+			CDVDVideoCodecIMXBuffer *buf = (CDVDVideoCodecIMXBuffer*)p.IMXBuffer;
+			if ( buf != NULL && buf->IsValid() ) {
+				buf->Show();
 			}
-
-			task.input.paddr = (int)buf->pPhysAddr;
-
-			// Setup deinterlacing if enabled
-			if ( _enableDeinterlacing ) {
-				VpuFieldType fieldType;
-				bool hasPreviousBuffer = (buf->GetPreviousBuffer() != NULL);
-
-				task.input.deinterlace.enable = 1;
-
-				if ( hasPreviousBuffer && lowMotion ) {
-					task.input.paddr_n = (int)buf->pPhysAddr;
-					task.input.paddr = (int)buf->GetPreviousBuffer()->pPhysAddr;
-					task.input.deinterlace.motion = LOW_MOTION;
-					fieldType = buf->GetPreviousBuffer()->GetFieldType();
-				}
-				else {
-					task.input.deinterlace.motion = HIGH_MOTION;
-					fieldType = buf->GetFieldType();
-				}
-
-				switch ( fieldType ) {
-					case VPU_FIELD_TOP:
-					case VPU_FIELD_TB:
-						task.input.deinterlace.field_fmt |= IPU_DEINTERLACE_FIELD_TOP;
-						break;
-					case VPU_FIELD_BOTTOM:
-					case VPU_FIELD_BT:
-						task.input.deinterlace.field_fmt |= IPU_DEINTERLACE_FIELD_BOTTOM;
-						break;
-					default:
-						break;
-				}
-
-				if ( doubleRate )
-					task.input.deinterlace.field_fmt |= IPU_DEINTERLACE_RATE_EN;
-			}
-
-			task.output.width = _vScreenInfo.xres;
-			task.output.height = _vScreenInfo.yres;
-			//task.output.format  = v4l2_fourcc('R', 'G', 'B', 'P');
-			//task.output.format  = v4l2_fourcc('U', 'Y', 'V', 'Y');
-			task.output.format  = _vScreenInfo.nonstd;
-			//task.output.format  = v4l2_fourcc('B', 'G', 'R', '4');
-			task.output.paddr = _fScreenInfo.smem_start + _currentPage*_fbPageSize;
-
-			// Setup viewport cropping
-			task.output.crop.pos.x = _viewPort.x;
-			task.output.crop.pos.y = _viewPort.y;
-			task.output.crop.w     = _viewPort.w;
-			task.output.crop.h     = _viewPort.h;
-
-			ret = IPU_CHECK_ERR_INPUT_CROP;
-			while ( ret != IPU_CHECK_OK && ret > IPU_CHECK_ERR_MIN ) {
-				ret = ioctl(_ipu, IPU_CHECK_TASK, &task);
-				switch ( ret ) {
-					case IPU_CHECK_OK:
-						break;
-					case IPU_CHECK_ERR_SPLIT_INPUTW_OVER:
-						task.input.crop.w -= 8;
-						break;
-					case IPU_CHECK_ERR_SPLIT_INPUTH_OVER:
-						task.input.crop.h -= 8;
-						break;
-					case IPU_CHECK_ERR_SPLIT_OUTPUTW_OVER:
-						task.output.crop.w -= 8;
-						break;
-					case IPU_CHECK_ERR_SPLIT_OUTPUTH_OVER:
-						task.output.crop.h -= 8;
-						break;
-					default:
-						cerr << "Unknown IPU check error: " << ret << endl;
-						cerr << "Viewport: " << _viewPort.x << "/" << _viewPort.y
-						              << " " << _viewPort.w << "x" << _viewPort.h
-						              << endl;
-						Stats::Ouput(p);
-						return false;
-				}
-			}
-
-			if ( (ret = ioctl(_ipu, IPU_QUEUE_TASK, &task)) < 0 )
-				cerr << "IPU task error: " << strerror(ret) << endl;
-
-			SwapPages(eglTest);
-
-			if ( _enableDeinterlacing && doubleRate ) {
-				// Lock buffer since it is release in Stats::Output
-				buf->Lock();
-
-				task.input.deinterlace.field_fmt |= IPU_DEINTERLACE_RATE_FRAME1;
-				task.output.paddr = _fScreenInfo.smem_start + _currentPage*_fbPageSize;
-
-				if ( (ret = ioctl(_ipu, IPU_QUEUE_TASK, &task)) < 0 )
-					cerr << "IPU task error: " << strerror(ret) << endl;
-
-				SwapPages(eglTest);
-
-				Stats::Ouput(p);
-			}
-
-			SAFE_RELEASE(_lastBuffer);
-			_lastBuffer = buf;
-			_lastBuffer->Lock();
 
 			return Stats::Ouput(p);
 		}
 
 		virtual void Done() {
-			cleanup();
-			SAFE_RELEASE(_lastBuffer);
-			destroyEGL();
 			Stats::Done();
 		}
-
-	private:
-		struct Rect {
-			Rect() : w(0), h(0) {}
-			Rect(int x_, int y_, int w_, int h_)
-			: x(x_), y(y_), w(w_), h(h_) {}
-
-			bool operator==(const Rect &other) const {
-				return x == other.x && y == other.y &&
-				       w == other.w && h == other.h;
-			}
-
-			int x,y;
-			int w,h;
-		};
-
-		bool GetResolution(int number, int &width, int &height) {
-			int fd;
-			struct fb_var_screeninfo fb_var;
-			char deviceName[20] ;
-
-			sprintf(deviceName, "/dev/fb%d", number);
-
-			if ( (fd = open(deviceName, O_RDWR, 0)) < 0 ) {
-				cerr << "Unable to open " << deviceName << endl;
-				return false;
-			}
-
-			if ( ioctl(fd, FBIOGET_VSCREENINFO, &fb_var) < 0 ) {
-				cerr << "Failed to set variable screen info" << endl;
-				close(fd);
-				return false;
-			}
-
-			close(fd);
-
-			width = fb_var.xres;
-			height = fb_var.yres;
-
-			return true;
-		}
-
-		void SetupViewPort(const Rect &r) {
-			_viewPort = r;
-		}
-
-		void SwapPages(bool swapGPU = true) {
-			static unsigned long long lastSwap = 0;
-
-			if ( _numPages > 1 ) {
-
-				int ret;
-				int nextPage = _currentPage + 1;
-				if ( nextPage >= _numPages )
-					nextPage = 0;
-
-				if ( nextPage != _currentPage ) {
-					_vScreenInfo.activate = FB_ACTIVATE_VBL;
-					_vScreenInfo.yoffset = _vScreenInfo.yres*_currentPage;
-					if ( (ret = ioctl(_fd, FBIOPAN_DISPLAY, &_vScreenInfo)) < 0 ) {
-						cerr << "Panning failed: " << strerror(ret) << endl;
-					}
-				}
-
-				_currentPage = nextPage;
-				if ( ioctl(_fd, FBIO_WAITFORVSYNC, 0) < 0 )
-					cerr << "Wait for vsync failed" << endl;
-
-				if ( swapGPU )
-					eglSwapBuffers(display, surface);
-
-				unsigned long long now = XbmcThreads::SystemClockMillis();
-				signed long long gap = 0;
-				if ( lastSwap ) {
-					unsigned long long nextSwap = lastSwap + _frameDuration;
-					gap = nextSwap - now;
-					if ( gap > 1 )
-						XbmcThreads::ThreadSleep(gap-2);
-				}
-
-				now = XbmcThreads::SystemClockMillis();
-				lastSwap = now;
-			}
-			else if ( swapGPU )
-				eglSwapBuffers(display, surface);
-
-			if ( !swapGPU ) return;
-
-			// Little rectangle moving across the screen
-			static int x = 0, y = 0;
-			static int dx = 10, dy = 10;
-
-			glClear(GL_COLOR_BUFFER_BIT);
-
-			GLfloat vertices[] = {
-				 x,      y,
-				 x+100,  y,
-				 x,      y+100,
-				 x+100,  y+100
-			};
-
-			x += dx; if ( x >= _vScreenInfo.xres || x <= 0 ) dx = -dx;
-			y += dy; if ( y >= _vScreenInfo.yres || y <= 0 ) dy = -dy;
-
-			glVertexAttribPointer(position_loc, 2, GL_FLOAT, false, 0, vertices);
-			glEnableVertexAttribArray(position_loc);
-			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-		}
-
-		void cleanup() {
-			if ( _ipu >= 0 ) {
-				close(_ipu);
-				_ipu = -1;
-			}
-
-			if ( _fd >= 0 ) {
-				ioctl(_fd, FBIOPUT_VSCREENINFO, &_vInitScreenInfo);
-				ioctl(_fd, FBIOBLANK, 1);
-				close(_fd);
-				_fd = -1;
-			}
-		}
-
-
-	private:
-		int                       _fd;
-		int                       _ipu;
-		int                       _numPages;
-		int                       _currentPage;
-		unsigned int              _fbSize;
-		int                       _fbPageSize;
-		bool                      _enableDeinterlacing;
-		struct fb_var_screeninfo  _vInitScreenInfo;
-		struct fb_var_screeninfo  _vScreenInfo;
-		struct fb_fix_screeninfo  _fScreenInfo;
-		CDVDVideoCodecIMXBuffer  *_lastBuffer;
-		Rect                      _viewPort;
-		int                       _frameDuration;
 };
 
 
@@ -1084,7 +666,7 @@ void test(const char *filename) {
 	DVDVideoPicture *pic;
 	T out(&queue);
 
-	queue.SetCapacity(3);
+	queue.SetCapacity(codec.GetAllowedReferences());
 	out.Start();
 
 	while ( !appExit && ((pic = it.next()) != NULL) )
@@ -1102,9 +684,7 @@ void help() {
 	cout << "      --vo arg        Set video output: gl, fb or null" << endl;
 	cout << "      --dur arg[=40]  Define frame duration used to sync playback" << endl;
 	cout << "      --doublerate    Implements double rate. Requires -d and --vo fb" << endl;
-	cout << "      --low-motion    Uses low motion deinterlacer" << endl;
-	cout << "      --gpu-vsync     Enabled vsync for eglSwapBuffers, default is false" << endl;
-	cout << "      --gpu-test      Draws a moving quad with OpenGL when video output is set to fb" << endl;
+	cout << "      --vsync         Enabled vsync, default is false" << endl;
 	cout << "      --vscale arg    Scale OpenGL texture quad" << endl;
 	cout << "      --tscale arg    Scale OpenGL texture coords" << endl;
 }
@@ -1182,15 +762,18 @@ int main (int argc, char *argv[]) {
 			deinterlacedTest = true;
 		else if ( !strcmp(argv[i], "--doublerate") )
 			doubleRate = true;
-		else if ( !strcmp(argv[i], "--low-motion") )
-			lowMotion = true;
-		else if ( !strcmp(argv[i], "--gpu-vsync") )
-			eglVSync = true;
-		else if ( !strcmp(argv[i], "--gpu-test") )
-			eglTest = true;
+		else if ( !strcmp(argv[i], "--vsync") )
+			vSync = true;
 	}
 
 	const char *filename = argv[1];
+
+	if ( doubleRate )
+		CMediaSettings::Get().GetCurrentVideoSettings().m_InterlaceMethod = VS_INTERLACEMETHOD_IMX_FASTMOTION_DOUBLE;
+	else
+		CMediaSettings::Get().GetCurrentVideoSettings().m_InterlaceMethod = VS_INTERLACEMETHOD_IMX_FASTMOTION;
+
+	g_IMXContext.SetVSync(vSync);
 
 	if ( progressiveTest && outNull ) {
 		cerr << "Set deinterlacing to OFF" << endl;
