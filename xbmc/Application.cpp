@@ -734,7 +734,9 @@ bool CApplication::Create()
 
   std::string executable = CUtil::ResolveExecutablePath();
   CLog::Log(LOGNOTICE, "The executable running is: %s", executable.c_str());
-  CLog::Log(LOGNOTICE, "Local hostname: %s", m_network->GetHostName().c_str());
+  std::string hostname("[unknown]");
+  m_network->GetHostName(hostname);
+  CLog::Log(LOGNOTICE, "Local hostname: %s", hostname.c_str());
   std::string lowerAppName = CCompileInfo::GetAppName();
   StringUtils::ToLower(lowerAppName);
   CLog::Log(LOGNOTICE, "Log File is located: %s%s.log", g_advancedSettings.m_logFolder.c_str(), lowerAppName.c_str());
@@ -2581,8 +2583,12 @@ bool CApplication::OnAction(const CAction &action)
   // built in functions : execute the built-in
   if (action.GetID() == ACTION_BUILT_IN_FUNCTION)
   {
-    CBuiltins::Execute(action.GetName());
-    m_navigationTimer.StartZero();
+    if (!CBuiltins::IsSystemPowerdownCommand(action.GetName()) ||
+        g_PVRManager.CanSystemPowerdown())
+    {
+      CBuiltins::Execute(action.GetName());
+      m_navigationTimer.StartZero();
+    }
     return true;
   }
 
@@ -4715,7 +4721,7 @@ void CApplication::CheckShutdown()
       || m_musicInfoScanner->IsScanning()
       || m_videoInfoScanner->IsScanning()
       || g_windowManager.IsWindowActive(WINDOW_DIALOG_PROGRESS) // progress dialog is onscreen
-      || (CSettings::Get().GetBool("pvrmanager.enabled") && !g_PVRManager.IsIdle()))
+      || !g_PVRManager.CanSystemPowerdown(false))
   {
     m_shutdownTimer.StartZero();
     return;
@@ -4991,7 +4997,11 @@ bool CApplication::ExecuteXBMCAction(std::string actionStr)
 
   // user has asked for something to be executed
   if (CBuiltins::HasCommand(actionStr))
-    CBuiltins::Execute(actionStr);
+  {
+    if (!CBuiltins::IsSystemPowerdownCommand(actionStr) ||
+        g_PVRManager.CanSystemPowerdown())
+      CBuiltins::Execute(actionStr);
+  }
   else
   {
     // try translating the action from our ButtonTranslator
