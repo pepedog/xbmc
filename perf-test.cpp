@@ -40,6 +40,8 @@ bool doubleRate = false;
 bool lowMotion = false;
 bool vSync = false;
 int  duration = 40;
+bool fb0Blank = false;
+bool forceDrop = false;
 
 
 void signal_handler(int signum) {
@@ -99,7 +101,7 @@ int initFB() {
 	}
 
 	// Unblank the fbs
-	if (ioctl(fd, FBIOBLANK, 0) < 0)
+	if (ioctl(fd, FBIOBLANK, fb0Blank?1:0) < 0)
 	{
 		printf("Error while unblanking\n");
 		return 1;
@@ -660,6 +662,7 @@ class FB : public Stats {
 template <typename T>
 void test(const char *filename) {
 	CDVDVideoCodecIMX codec;
+	codec.SetDropState(forceDrop);
 	Queue queue;
 	BufferIterator it(&codec, filename);
 	DVDVideoPicture *pic;
@@ -686,6 +689,8 @@ void help() {
 	cout << "      --vsync         Enabled vsync, default is false" << endl;
 	cout << "      --vscale arg    Scale OpenGL texture quad" << endl;
 	cout << "      --tscale arg    Scale OpenGL texture coords" << endl;
+	cout << "      --blank arg     Blanks fb0 for testing" << endl;
+	cout << "      --drop arg      Force dropping all frames" << endl;
 }
 
 int main (int argc, char *argv[]) {
@@ -763,6 +768,10 @@ int main (int argc, char *argv[]) {
 			doubleRate = true;
 		else if ( !strcmp(argv[i], "--vsync") )
 			vSync = true;
+		else if ( !strcmp(argv[i], "--blank") )
+			fb0Blank = true;
+		else if ( !strcmp(argv[i], "--drop") )
+			forceDrop = true;
 	}
 
 	const char *filename = argv[1];
