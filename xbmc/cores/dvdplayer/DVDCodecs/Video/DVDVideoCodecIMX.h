@@ -37,7 +37,7 @@
 // deinterlacing.
 // Progressive content seems to be handled faster with I420 whereas
 // interlaced content is processed faster with NV12 as output format.
-#define IMX_INPUT_FORMAT_I420
+//#define IMX_INPUT_FORMAT_I420
 
 // This enables logging of times for Decode, Render->Render,
 // Deinterlace. It helps to profile several stages of
